@@ -68,6 +68,11 @@ Start the drowsiness detection system with default settings:
 python sleep_detector.py
 ```
 
+Start the distraction detection system :
+```bash
+python distraction_detector.py
+```
+
 ### Advanced Options
 ```bash
 # Specify EAR threshold (lower = more sensitive)
