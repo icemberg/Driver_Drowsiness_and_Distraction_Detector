@@ -1,4 +1,4 @@
-# Driver Drowsiness and Distraction Detection System
+# Driver Drowsiness and Distraction Detector
 
 An advanced real-time drowsiness and distraction detection system for drivers using computer vision and facial recognition. This system monitors driver alertness and triggers audio alarms to prevent accidents caused by fatigue or distraction.
 
