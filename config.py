@@ -65,6 +65,31 @@ SHOW_LANDMARKS = True        # Show facial landmarks visualization in debug mode
 TEXT_COLOR = (255, 0, 0)     # Alert text color (Blue=0, Green=0, Red=255) = Red
 FRAME_COLOR = (0, 255, 0)    # Face frame color (Blue=0, Green=255, Red=0) = Green
 
+##############################
+# DISTRACTION DETECTION      #
+##############################
+
+# Gaze ratio range — iris position relative to eye corners
+# 0.0 = fully toward outer corner, 1.0 = fully toward inner corner, 0.5 = centered
+# Values outside this band trigger "gazing away"
+GAZE_CENTER_MIN = 0.35
+GAZE_CENTER_MAX = 0.60
+
+# Head-pose angle limits (degrees from calibrated neutral)
+# Exceeding any limit means the head is "not forward"
+HEAD_YAW_LIMIT = 20       # left/right turn
+HEAD_PITCH_LIMIT = 15     # up/down tilt
+HEAD_ROLL_LIMIT = 12      # sideways head tilt
+
+# Face off-centre band (nose_x normalised 0–1)
+# Outside this band ⇒ face is off-centre in the frame
+OFF_CENTER_MIN = 0.30
+OFF_CENTER_MAX = 0.70
+
+# Consecutive distracted frames required before showing warning
+# Prevents single-frame flicker. At 30 fps, 10 frames ≈ 0.33 s
+DISTRACTION_CONSEC_FRAMES = 10
+
 ####################
 # DEBUG SETTINGS   #
 ####################

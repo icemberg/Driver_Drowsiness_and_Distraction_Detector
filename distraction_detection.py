@@ -2,6 +2,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import math
+import config
+from utils import play_alarm
 
 # Initialize MediaPipe
 mp_face_mesh = mp.solutions.face_mesh
@@ -22,6 +24,13 @@ face_mesh = mp_face_mesh.FaceMesh(
 neutral_yaw = None
 neutral_pitch = None
 neutral_roll = None
+
+def reset_calibration():
+    """Reset neutral head-pose calibration so next frame becomes the new neutral."""
+    global neutral_yaw, neutral_pitch, neutral_roll
+    neutral_yaw = None
+    neutral_pitch = None
+    neutral_roll = None
 
 def vector_head_pose(landmarks, w, h):
 
@@ -56,9 +65,10 @@ def vector_head_pose(landmarks, w, h):
 
     # ---- Compute angles ----
     yaw = np.degrees(np.arctan2(face_normal[0], face_normal[2]))
-    pitch = np.degrees(np.arctan2(-face_normal[1], face_normal[2])) - 45
+    pitch = np.degrees(np.arctan2(-face_normal[1], face_normal[2]))
     roll = np.degrees(np.arctan2(eye_vector[1], eye_vector[0]))
 
+    # Calibrate against the first (or re-calibrated) frame
     if neutral_yaw is None:
         neutral_yaw = yaw
         neutral_pitch = pitch
@@ -69,9 +79,9 @@ def vector_head_pose(landmarks, w, h):
     roll -= neutral_roll
     
     forward = (
-        abs(yaw) < 18 and
-        abs(pitch) < 18 and
-        abs(roll) < 15
+        abs(yaw) < config.HEAD_YAW_LIMIT and
+        abs(pitch) < config.HEAD_PITCH_LIMIT and
+        abs(roll) < config.HEAD_ROLL_LIMIT
     )
 
     return {
@@ -91,27 +101,29 @@ def get_status(face_landmarks, w, h):
     l_inner = face_landmarks.landmark[133]
     l_outer = face_landmarks.landmark[33]
 
-    left_ratio = (l_iris.x - l_outer.x) / (l_inner.x - l_outer.x)
+    denom_l = l_inner.x - l_outer.x
+    left_ratio = (l_iris.x - l_outer.x) / denom_l if abs(denom_l) > 1e-6 else 0.5
 
     # ----- Right Eye -----
     r_iris = face_landmarks.landmark[473]
     r_inner = face_landmarks.landmark[362]
     r_outer = face_landmarks.landmark[263]
 
-    right_ratio = (r_iris.x - r_inner.x) / (r_outer.x - r_inner.x)
+    denom_r = r_outer.x - r_inner.x
+    right_ratio = (r_iris.x - r_inner.x) / denom_r if abs(denom_r) > 1e-6 else 0.5
 
     # ----- Average Gaze -----
     gaze_ratio = (left_ratio + right_ratio) / 2
 
-    # 0.5 means center
-    is_gazing_away = not (0.3 < gaze_ratio < 0.6)
+    # 0.5 means center — values outside the config band mean looking away
+    is_gazing_away = not (config.GAZE_CENTER_MIN < gaze_ratio < config.GAZE_CENTER_MAX)
 
     # --- Head Pose ---
     metrics = vector_head_pose(face_landmarks, w, h)
 
     # --- Center Check ---
     nose_x = face_landmarks.landmark[1].x
-    is_off_center = not (0.35 < nose_x < 0.65)
+    is_off_center = not (config.OFF_CENTER_MIN < nose_x < config.OFF_CENTER_MAX)
 
     return is_gazing_away, metrics, is_off_center
 
@@ -121,7 +133,15 @@ def get_status(face_landmarks, w, h):
 # -------------------------------
 def main():
 
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(config.CAMERA_INDEX)
+
+    # Consecutive-frame counter for temporal smoothing
+    distraction_counter = 0
+    alarm_on = False
+    no_face_counter = 0
+
+    print("[INFO] Distraction detection started.")
+    print("[INFO] Press 'Esc' to quit, 'c' to re-calibrate neutral head pose.")
 
     while cap.isOpened():
 
@@ -137,6 +157,8 @@ def main():
         results = face_mesh.process(rgb_frame)
 
         if results.multi_face_landmarks:
+
+            no_face_counter = 0  # reset when face is found
 
             for landmarks in results.multi_face_landmarks:
 
@@ -172,27 +194,60 @@ def main():
                 if "yaw" in metrics:
                     print(f"Yaw={metrics['yaw']:.2f} Pitch={metrics['pitch']:.2f} Roll={metrics['roll']:.2f}")
 
-                distracted = gaze or ((not metrics["forward"]) and center)
+                # --- Distraction decision ---
+                # Any ONE signal independently means distraction
+                frame_distracted = gaze or (not metrics["forward"]) or center
 
-                if distracted:
+                if frame_distracted:
+                    distraction_counter += 1
+                else:
+                    distraction_counter = 0
+                    alarm_on = False
+
+                # Only show warning after sustained distraction
+                if distraction_counter >= config.DISTRACTION_CONSEC_FRAMES:
                     cv2.putText(frame, "DISTRACTED", (20, 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+                    # Trigger alarm once per distraction episode
+                    if not alarm_on:
+                        alarm_on = True
+                        play_alarm(config.ALARM_SOUND, config.ALARM_VOLUME)
                 else:
                     cv2.putText(frame, "ATTENTIVE", (20, 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
                 text = f"Gaze:{gaze} HeadTurn:{not metrics['forward']} OffCenter:{center}"
 
                 cv2.putText(frame, text, (20, 70),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        else:
+            # No face detected
+            no_face_counter += 1
+            distraction_counter = 0
+            alarm_on = False
+
+            cv2.putText(frame, "NO FACE DETECTED", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 140, 255), 2)
+
+            # If face has been absent for a long time, escalate warning
+            if no_face_counter >= config.DISTRACTION_CONSEC_FRAMES * 3:
+                cv2.putText(frame, "DRIVER ABSENT!", (20, 80),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         cv2.imshow("Face Mesh & Attention Detection", frame)
 
-        if cv2.waitKey(5) & 0xFF == 27:
+        key = cv2.waitKey(5) & 0xFF
+        if key == 27:  # Esc
             break
+        elif key == ord('c'):
+            reset_calibration()
+            print("[INFO] Neutral head-pose re-calibrated.")
 
     cap.release()
     cv2.destroyAllWindows()
+    print("[INFO] Distraction detection stopped.")
 
 
 if __name__ == "__main__":
