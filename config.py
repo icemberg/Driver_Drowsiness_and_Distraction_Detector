@@ -53,6 +53,18 @@ FRAME_HEIGHT = 480    # Frame height in pixels (higher = more detail but slower 
 ALARM_SOUND = "alarm.wav"    # Path to sound file (default=built-in beeping)
 ALARM_VOLUME = 0.9           # Volume level (0.0=silent, 1.0=maximum)
 
+#########################
+# AUDIO ALERT SETTINGS #
+#########################
+# Internal fallback tone generator used by utils.play_alarm.
+ALARM_SAMPLE_RATE = 44100
+ALARM_AUDIO_FORMAT = -16
+ALARM_CHANNELS = 2
+ALARM_BUFFER_SIZE = 1024
+ALARM_DURATION = 1.0
+ALARM_FREQUENCY = 880
+ALARM_AMPLITUDE = 32767
+
 ####################
 # UI SETTINGS      #
 ####################
@@ -105,11 +117,37 @@ SHOW_EYE_PROCESSING = True   # Enable detailed eye processing visualization
 ENABLE_LOGGING = False                  # Enable/disable event logging
 LOG_FILE = "sleep_detection_log.txt"    # Path to log file
 
+########################
+# UTILITY CONSTANTS    #
+########################
+# Internal helper constants used by utility functions across modules.
+EAR_RATIO_SCALE = 0.27
+EAR_SIZE_FACTOR_MAX = 0.03
+EAR_AREA_DIVISOR = 20000
+EAR_MIN = 0.15
+EAR_MAX = 0.35
+GAZE_HORIZONTAL_MIN_RATIO = 0.2
+GAZE_HORIZONTAL_MAX_RATIO = 0.8
+GAZE_VERTICAL_MIN_RATIO = 0.15
+GAZE_VERTICAL_MAX_RATIO = 0.6
+EYE_CLOSURE_HIST_BINS = 256
+EYE_CLOSURE_WEIGHT_START = 1.0
+EYE_CLOSURE_WEIGHT_END = 0.1
+UPPER_LIP_LANDMARK = 13
+LOWER_LIP_LANDMARK = 14
+LEFT_MOUTH_LANDMARK = 78
+RIGHT_MOUTH_LANDMARK = 308
 
 #####################
 # YAWNING DETECTION #
 #####################
 
-MAR_THRESHOLD = 0.6
+MAR_THRESHOLD = 0.5
+EAR_THRESHOLD = 0.23
+MIN_EYE_CLOSED_OVERLAP = 0.3
+HAND_MOUTH_DISTANCE_PX = 120  # Increased from 90 for better hand detection tolerance
+SMOOTH_WINDOW = 7
+YAWN_COOLDOWN = 2.0
+YAWN_ALERT_DURATION = 1.5
 YAWN_FRAMES = 25   # ~1 sec at 25 FPS
-MIN_YAWN_DURATION = 1.5   # seconds to confirm a yawn
+MIN_YAWN_DURATION = 1.2   # seconds to confirm a yawn
