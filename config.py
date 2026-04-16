@@ -104,3 +104,12 @@ SHOW_EYE_PROCESSING = True   # Enable detailed eye processing visualization
 # Data logging for analysis
 ENABLE_LOGGING = False                  # Enable/disable event logging
 LOG_FILE = "sleep_detection_log.txt"    # Path to log file
+
+
+#####################
+# YAWNING DETECTION #
+#####################
+
+MAR_THRESHOLD = 0.6
+YAWN_FRAMES = 25   # ~1 sec at 25 FPS
+MIN_YAWN_DURATION = 1.5   # seconds to confirm a yawn

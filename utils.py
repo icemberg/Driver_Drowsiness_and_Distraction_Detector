@@ -106,3 +106,15 @@ def log_drowsiness_event(log_file):
         
 def resize_frame(frame, width, height):
     return cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+
+def mouth_aspect_ratio(landmarks, w, h):
+    top = np.array([landmarks[13].x * w, landmarks[13].y * h])
+    bottom = np.array([landmarks[14].x * w, landmarks[14].y * h])
+
+    left = np.array([landmarks[78].x * w, landmarks[78].y * h])
+    right = np.array([landmarks[308].x * w, landmarks[308].y * h])
+
+    vertical_dist = np.linalg.norm(top - bottom)
+    horizontal_dist = np.linalg.norm(left - right)
+
+    return vertical_dist / (horizontal_dist + 1e-6)  # avoid division by zero
