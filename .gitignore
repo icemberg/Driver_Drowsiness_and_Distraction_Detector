@@ -77,3 +77,10 @@ videos/
 .vscode/
 *.swp
 *.swo
+
+features/drink_and_drive/drink_dataset/
+drink_detection_logs/
+features/drink_and_drive/runs/
+dataset.yaml
+features/drink_and_drive/image_downloader.log
+yolov8n.pt

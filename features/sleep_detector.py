@@ -5,8 +5,8 @@ import numpy as np
 import pygame
 import mediapipe as mp
 from datetime import datetime
-import config
-from utils import play_alarm, log_drowsiness_event, resize_frame, is_looking_away
+import config.config as config
+from utils.utils import play_alarm, log_drowsiness_event, resize_frame, is_looking_away
 
 mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
@@ -62,7 +62,7 @@ def extract_eye_landmarks(face_landmarks, eye_indices):
 def main():
     args = parse_arguments()
     if args.log:
-        from utils import initialize_logger
+        from utils.utils import initialize_logger
         initialize_logger(config.LOG_FILE)
     pygame.mixer.init()
     face_mesh = mp_face_mesh.FaceMesh(
@@ -192,7 +192,7 @@ def main():
         if results.multi_face_landmarks:
             for face_landmarks in results.multi_face_landmarks:
                 # INVOKE THE FUNCTION HERE
-                if is_looking_away(face_landmarks, w, h):
+                if is_looking_away(face_landmarks, w, h) == False:
                     status = "Looking Away!"
         cv2.putText(frame, status, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         cv2.imshow('Head Pose Detection', frame)

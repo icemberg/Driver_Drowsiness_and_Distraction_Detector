@@ -151,3 +151,90 @@ YAWN_COOLDOWN = 2.0
 YAWN_ALERT_DURATION = 1.5
 YAWN_FRAMES = 25   # ~1 sec at 25 FPS
 MIN_YAWN_DURATION = 1.2   # seconds to confirm a yawn
+
+##########################
+# DRINK AND DRIVE DETECTION#
+##########################
+
+# Hand-to-mouth detection thresholds
+DRINK_HAND_MOUTH_DISTANCE_THRESHOLD = 0.15  # Normalized distance (0-1, relative to face width)
+DRINK_SUSTAINED_FRAMES = 12  # Consecutive frames (at 30 fps, ~0.4 seconds)
+
+# State machine thresholds
+DRINK_POSSIBLE_FRAMES = 3  # Frames to transition to POSSIBLE_DRINKING
+DRINK_CONFIRMED_FRAMES = 8  # Frames to transition to DRINKING
+DRINK_ALERT_FRAMES = 15  # Frames to trigger ALERT state
+
+# Head pose distraction indicators (degrees)
+HEAD_YAW_DISTRACTION_THRESHOLD = 25  # Head turned left/right
+HEAD_PITCH_DISTRACTION_THRESHOLD = 18  # Head tilted up/down
+
+# Drink object detector settings
+DRINK_DETECTION_CONFIDENCE_THRESHOLD = 0.5
+DRINK_OBJECT_CLASSES = ['cup', 'bottle', 'mug', 'can', 'glass']
+
+# Drink-object position relative to face (normalized)
+DRINK_BBOX_FACE_PROXIMITY_THRESHOLD = 0.3  # How close bbox should be to lower face region
+
+# Cooldown between alerts (seconds)
+DRINK_ALERT_COOLDOWN = 3.0
+DRINK_ALERT_DURATION = 2.0
+
+##############################################
+# DRINK OBJECT DETECTION (YOLOv8)           #
+##############################################
+
+# YOLOv8 Object Detector parameters
+DRINK_OBJECT_DETECTOR_MODEL = "yolov8n"  # YOLOv8 Nano (lightweight, real-time)
+DRINK_DETECTOR_CONFIDENCE_THRESHOLD = 0.6  # 60% confidence for detection
+DRINK_DETECTOR_BOX_AREA_MIN_PIXELS = 500  # Minimum bounding box area
+DRINK_DETECTOR_MODEL_PATH = "drink_detector_yolov8n.pt"  # Path to trained model
+
+# Custom drink classes to detect (must match training labels)
+DRINK_CLASSES = ['cup', 'bottle', 'mug', 'can', 'glass', 'drinking_bottle', 'soda_can', 'beer_bottle', 'water_bottle', 'tea_cup']
+DRINK_OBJECT_DETECTION_ENABLED = True
+
+# Mouth region definition (relative to face bounding box)
+MOUTH_REGION_TOP_RATIO = 0.65  # 65% down from top of face
+MOUTH_REGION_BOTTOM_RATIO = 0.95  # 95% down from top of face
+MOUTH_REGION_LEFT_RATIO = 0.25  # 25% from left edge of face
+MOUTH_REGION_RIGHT_RATIO = 0.75  # 75% from right edge of face
+
+############################################
+# TUNED STATE TRANSITION THRESHOLDS       #
+############################################
+# These are optimized for real driving scenarios
+
+# State transition thresholds (based on risk score 0-3)
+DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE = 1.5  # Lower threshold for initial detection
+DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED = 2.0  # Require higher confidence
+DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 2.5  # Very high confidence for alert
+
+# Frame consistency requirements (at 30fps)
+DRINK_FRAMES_IDLE_TO_POSSIBLE = 5  # ~0.17 seconds
+DRINK_FRAMES_POSSIBLE_TO_CONFIRMED = 10  # ~0.33 seconds
+DRINK_FRAMES_CONFIRMED_TO_ALERT = 12  # ~0.40 seconds
+
+# Fallback thresholds (drop to idle if risk falls below)
+DRINK_RISK_FALLBACK_THRESHOLD = 1.0
+
+# Signal weights for fused risk score
+SIGNAL_WEIGHT_HAND_PROXIMITY = 1.0
+SIGNAL_WEIGHT_OBJECT_DETECTION = 1.0
+SIGNAL_WEIGHT_HEAD_DISTRACTION = 0.5
+
+############################################
+# EVENT LOGGING AND SNAPSHOTS             #
+############################################
+
+# Logging directory and settings
+DRINK_LOG_DIRECTORY = "drink_detection_logs"
+DRINK_LOG_FILENAME = "drink_and_drive_events.csv"
+DRINK_SNAPSHOTS_DIRECTORY = "drink_detection_logs/snapshots"
+DRINK_EVENT_SNAPSHOT_COUNT = 6  # Number of frames to capture around alert
+
+# Enable/disable features
+ENABLE_DRINK_DETECTION = True
+ENABLE_DRINK_SNAPSHOTS = True
+ENABLE_DRINK_CSV_LOGGING = True
+

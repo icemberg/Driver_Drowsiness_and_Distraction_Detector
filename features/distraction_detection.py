@@ -2,8 +2,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import math
-import config
-from utils import play_alarm
+import config.config as config
+from utils.utils import play_alarm
 
 # Initialize MediaPipe
 mp_face_mesh = mp.solutions.face_mesh

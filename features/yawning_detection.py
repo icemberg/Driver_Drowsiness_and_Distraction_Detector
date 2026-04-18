@@ -3,13 +3,13 @@ import mediapipe as mp
 import numpy as np
 import time
 from collections import deque
-from config import (
+from config.config import (
     CAMERA_INDEX,
     FRAME_WIDTH,
     FRAME_HEIGHT
 )
-from utils import play_alarm, initialize_logger, mouth_center, hand_near_mouth, calculate_mouth_aspect_ratio, calculate_eye_aspect_ratio, draw_face_mesh
-from config import (
+from utils.utils import play_alarm, initialize_logger, mouth_center, hand_near_mouth, calculate_mouth_aspect_ratio, calculate_eye_aspect_ratio, draw_face_mesh
+from config.config import (
     MAR_THRESHOLD,
     EAR_THRESHOLD,
     MIN_YAWN_DURATION,

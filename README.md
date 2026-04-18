@@ -6,10 +6,13 @@ An advanced real-time drowsiness and distraction detection system for drivers us
 
 - **Real-time Drowsiness Detection**: Uses Eye Aspect Ratio (EAR) to detect when a driver's eyes are closed
 - **Distraction Detection**: Monitors head position and eye gaze to detect when the driver is looking away
+- **Drink & Drive Detection**: YOLOv8n real-time detection for drink containers with state machine logic
+- **Hand-Proximity Signals**: Detects hand-to-mouth distance for drinking behavior
+- **Signal Fusion**: Combines multiple signals with weighted scoring for robust detection
 - **Audio Alerts**: Distinctive alarm sounds to alert drowsy drivers immediately
 - **Configurable Sensitivity**: Adjustable thresholds for different users and environments
 - **Debug Mode**: Visual feedback showing facial landmarks and processing information
-- **Event Logging**: Optional logging of drowsiness events for analysis
+- **Event Logging**: Optional logging of drowsiness events with frame snapshots for analysis
 - **Multi-threaded Performance**: Efficient real-time processing with MediaPipe and OpenCV
 
 ## Requirements
@@ -31,6 +34,8 @@ pip install -r requirements.txt
 - `mediapipe>=0.8.10` - Face mesh detection and facial landmark tracking
 - `pygame>=2.0.0` - Audio playback for alarms
 - `matplotlib>=3.4.0` - Plotting and visualization
+- `ultralytics>=8.0.0` - YOLOv8 models for drink object detection
+- `icrawler>=0.10.0` - Web scraping for automated dataset collection
 
 ## Installation
 
@@ -100,7 +105,66 @@ python sleep_detector.py --silent
 python sleep_detector.py --ear 0.20 --seconds 1.5 --debug --log
 ```
 
-## Configuration
+### Drink & Drive Detection
+
+The system includes an advanced YOLOv8n-based drink detection module that monitors drinking behavior:
+
+```bash
+# Start the drink & drive detection system
+python drink_and_drive_detection.py
+```
+
+#### Training a Custom Drink Detector
+
+**Step 1: Collect Training Data**
+```bash
+# Interactive mode - collect samples from webcam
+python drink_detector_trainer.py --mode collect_dataset
+
+# Download images from the web (1000+ images per class)
+python drink_detector_trainer.py --mode download_web
+
+# Or run the complete pipeline
+python image_downloader.py --download --clean --stats
+```
+
+**Step 2: Train the YOLOv8 Model**
+```bash
+# Train YOLOv8n on your dataset
+python drink_detector_trainer.py --mode train --dataset_path ./drink_dataset
+
+# Custom model output path
+python drink_detector_trainer.py --mode train --model_path ./custom_drink_model.pt
+```
+
+**Step 3: Test the Model**
+```bash
+# Real-time camera test with trained model
+python drink_detector_trainer.py --mode test_camera --model_path ./drink_detector_yolov8n.pt
+
+# Evaluate model performance
+python drink_detector_trainer.py --mode evaluate --model_path ./drink_detector_yolov8n.pt
+```
+
+#### How Drink Detection Works
+
+1. **Object Detection**: YOLOv8n detects drink containers (cups, bottles, etc.) in real-time
+2. **Hand Tracking**: MediaPipe detects hand proximity to mouth
+3. **Signal Fusion**: Combines detection signals with weighted scoring:
+   - Drink object detection confidence: 1.0x
+   - Hand-to-mouth distance: 1.0x  
+   - Head distraction level: 0.5x
+4. **State Machine**: 4-state system (IDLE → POSSIBLE_DRINKING → DRINKING → ALERT)
+5. **Event Logging**: CSV logs and frame snapshots saved on alert triggers
+
+#### Drink Detector Architecture
+
+- **Model**: YOLOv8 Nano (efficient, 30+ FPS real-time)
+- **Classes**: 10 drink types (cup, water bottle, coffee mug, beer bottle, etc.)
+- **Performance**: <50ms inference per frame on CPU
+- **Pretrained**: Weights from COCO dataset, fine-tuned on drink dataset
+
+
 
 Edit `config.py` to adjust system parameters:
 
@@ -131,7 +195,38 @@ Edit `config.py` to adjust system parameters:
 - `ENABLE_LOGGING`: Enable event logging (default: False)
 - `LOG_FILE`: Path to log file (default: "sleep_detection_log.txt")
 
-## Keyboard Controls
+### Drink Detection Parameters
+
+**Model Configuration:**
+- `DRINK_OBJECT_DETECTOR_MODEL`: Model type (default: "yolov8n" - YOLOv8 Nano)
+- `DRINK_DETECTOR_MODEL_PATH`: Path to trained drink detector model
+- `DRINK_DETECTOR_CONFIDENCE_THRESHOLD`: Minimum confidence for detection (default: 0.6)
+- `DRINK_DETECTOR_BOX_AREA_MIN_PIXELS`: Minimum bbox area to consider (default: 500 pixels)
+
+**Drink Detection Classes:**
+- `DRINK_CLASSES`: List of 10 drink types to detect (cup, bottle, mug, can, glass, etc.)
+
+**Signal Fusion Weights:**
+- `DRINK_HAND_MOUTH_DISTANCE_THRESHOLD`: Hand proximity threshold (default: 0.15)
+- `DRINK_BBOX_FACE_PROXIMITY_THRESHOLD`: Detection proximity to face (default: 0.3)
+- `DRINK_OBJECT_DETECTION_ENABLED`: Enable/disable drink object detection (default: True)
+
+**State Machine Thresholds:**
+- `DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE`: Risk threshold 1 (default: 1.5)
+- `DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED`: Risk threshold 2 (default: 2.0)
+- `DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT`: Risk threshold 3 (default: 2.5)
+
+**State Transition Frame Requirements:**
+- `DRINK_FRAMES_IDLE_TO_POSSIBLE`: Frames to transition (default: 5 @ 30fps ≈ 0.17s)
+- `DRINK_POSSIBLE_FRAMES`: Frames in POSSIBLE_DRINKING (default: 3)
+- `DRINK_CONFIRMED_FRAMES`: Frames to confirm DRINKING (default: 8)
+- `DRINK_ALERT_FRAMES`: Frames to trigger ALERT (default: 15)
+
+**Alert Behavior:**
+- `DRINK_ALERT_COOLDOWN`: Minimum time between alerts (default: 3.0 seconds)
+- `DRINK_ALERT_DURATION`: Alert sound duration (default: 2.0 seconds)
+
+
 
 While the detection system is running, use these keyboard shortcuts:
 
@@ -145,13 +240,17 @@ While the detection system is running, use these keyboard shortcuts:
 
 ```
 Driver_Drowsiness_Detector/
-├── sleep_detector.py           # Main drowsiness detection module
-├── distraction_detection.py    # Head position and gaze tracking
-├── utils.py                    # Utility functions and helpers
-├── config.py                   # Configuration parameters
-├── test_installation.py        # Installation verification script
-├── requirements.txt            # Python dependencies
-└── README.md                   # This file
+├── sleep_detector.py              # Main drowsiness detection module
+├── distraction_detection.py       # Head position and gaze tracking
+├── drink_and_drive_detection.py   # Drink & drive with signal fusion
+├── drink_detector_trainer.py      # YOLOv8 training orchestration
+├── yolov8_drink_detector.py       # YOLOv8 detector class (clean code)
+├── image_downloader.py            # Automated dataset collection
+├── utils.py                       # Utility functions and helpers
+├── config.py                      # Configuration parameters
+├── test_installation.py           # Installation verification script
+├── requirements.txt               # Python dependencies
+└── README.md                      # This file
 ```
 
 ### File Descriptions
@@ -168,17 +267,41 @@ Driver_Drowsiness_Detector/
 - Determines if driver is looking away from road
 - Computes yaw, pitch, and roll angles
 
+**drink_and_drive_detection.py**
+- Integrated drink & drive detection with state machine
+- Combines MediaPipe hand/face tracking with YOLOv8 detection
+- Signal fusion using weighted risk scoring
+- Event logging with CSV format and frame snapshots
+
+**drink_detector_trainer.py**
+- Training orchestration for YOLOv8 drink detector
+- Modes: collect_dataset, download_web, train, evaluate, test_camera
+- Automated dataset preparation and model training pipeline
+- Real-time testing and model evaluation
+
+**yolov8_drink_detector.py**
+- YOLOv8 detector class with clean code principles
+- Methods: train(), predict(), draw_detections(), save(), load()
+- Helper: create_dataset_yaml() for YOLO format dataset
+- Production-ready with comprehensive error handling
+
+**image_downloader.py**
+- Automated dataset collection from Bing Image Search
+- Uses icrawler for web scraping
+- Downloads 1000+ images per drink class
+- Automatic cleanup of corrupt/invalid images
+
 **utils.py**
 - Utility functions for alarm playback
-- Event logging functionality
-- Frame resizing and preprocessing
-- Eye closure detection helpers
-- Audio generation for alarm beeps
+- Event logging and frame snapshot functionality
+- Hand proximity and head pose calculation
+- Signal fusion and weighted risk scoring
 
 **config.py**
 - Centralized configuration for all system parameters
 - Well-documented settings with explanations
 - Easy adjustment without code modification
+- 40+ parameters for fine-tuning detector behavior
 
 ## How It Works
 
@@ -205,7 +328,38 @@ EAR = (Distance between upper and lower eyelid) / (Width of eye)
 - Tracks iris position within eye bounds
 - Flags when driver looks away from forward direction
 
-## Tips for Best Performance
+### 6. Drink & Drive Detection (YOLOv8n Architecture)
+
+**Step 1: Object Detection**
+- YOLOv8n detects drink containers using pretrained COCO weights
+- Fine-tuned on custom drink dataset (10 classes)
+- Real-time inference <50ms per frame
+
+**Step 2: Hand Tracking**
+- MediaPipe detects 21 hand joints
+- Calculates hand-to-mouth distance
+- Normalized relative to face width (0-1 scale)
+
+**Step 3: Signal Fusion**
+- Combines three independent signals:
+  - Drink object confidence (from YOLOv8)
+  - Hand proximity score (normalized distance)
+  - Head distraction level (from pose estimation)
+- Weighted scoring creates composite risk score
+
+**Step 4: State Machine**
+- 4-state system for robust detection:
+  - IDLE: No drinking detected (baseline)
+  - POSSIBLE_DRINKING: Risk score > 1.5 for 5 frames
+  - DRINKING: Risk score > 2.0 for 8 frames
+  - ALERT: Risk score > 2.5 for 15 frames → triggers alarm
+
+**Step 5: Event Logging**
+- CSV format logging with timestamps
+- Frame snapshots saved on alert events
+- Configurable cooldown between consecutive alerts
+
+
 
 1. **Lighting**: Ensure adequate lighting on the driver's face for optimal detection
 2. **Camera Position**: Mount camera at eye level, 12-18 inches from face
