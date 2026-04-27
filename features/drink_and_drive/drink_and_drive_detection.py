@@ -69,20 +69,6 @@ mp_face_mesh = mp.solutions.face_mesh
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 
-face_mesh = mp_face_mesh.FaceMesh(
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
-)
-
-hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
-)
-
 # ============================================================
 # State Machine
 # ============================================================
@@ -228,152 +214,225 @@ def main():
                 risk_score = 0.0
                 mouth_point = None
                 face_width = None
+                yaw = 0.0
+                pitch = 0.0
                 drink_objects = []
+                face_detected = False
 
+                # ============================================================
+                # FACE DETECTION: Optional but preferred
+                # ============================================================
                 if face_results.multi_face_landmarks:
+                    face_detected = True
                     face_landmarks = face_results.multi_face_landmarks[0].landmark
                     
                     # Get mouth center and face width
                     mouth_point = mouth_center(face_landmarks, w, h)
                     face_width = estimate_face_width(face_landmarks, w)
                     
-                    # Estimate head pose
-                    yaw, pitch = estimate_head_pose(face_landmarks)
-                    head_distracted = (
-                        abs(yaw) > HEAD_YAW_DISTRACTION_THRESHOLD
-                        or abs(pitch) > HEAD_PITCH_DISTRACTION_THRESHOLD
-                    )
-                    
-                    # Draw face mesh
-                    draw_face_mesh(frame, face_results.multi_face_landmarks[0])
-                    
-                    # Process hands
-                    if hand_results.multi_hand_landmarks and mouth_point is not None:
-                        for hand_idx, hand_landmarks in enumerate(hand_results.multi_hand_landmarks):
-                            # Get hand index finger tip
-                            index_tip = get_hand_index_tip(hand_landmarks, w, h)
-                            
-                            # Compute normalized hand-to-mouth distance
-                            norm_dist = normalize_hand_mouth_distance(
-                                hand_landmarks.landmark[8],
-                                mouth_point,
-                                face_width,
-                                w,
-                                h,
-                            )
-                            
-                            if hand_mouth_dist_normalized is None or norm_dist < hand_mouth_dist_normalized:
-                                hand_mouth_dist_normalized = norm_dist
-                            
-                            # Draw hand landmarks
-                            mp_drawing.draw_landmarks(
-                                frame,
-                                hand_landmarks,
-                                mp_hands.HAND_CONNECTIONS,
-                            )
-                    
-                    # ============================================================
-                    # ENHANCED: Drink object detection using YOLOv8 model
-                    # ============================================================
-                    if ENABLE_DRINK_DETECTION and custom_drink_detector is not None:
-                        try:
-                            # YOLOv8 prediction
-                            detections = custom_drink_detector.predict(frame)
-                            
-                            if detections:
-                                drink_near_mouth = True
-                                drink_objects = detections
-                                
-                                # Draw detections on frame
-                                frame = custom_drink_detector.draw_detections(
-                                    frame, detections, color=(0, 165, 255), thickness=2
-                                )
-                                
-                                # Log detection info
-                                for det in detections:
-                                    print(f"[DETECT] {det['class']}: {det['confidence']:.2f}")
-                        except Exception as e:
-                            print(f"[ERROR] YOLOv8 detection error: {e}")
+                    # Validate face measurements
+                    if mouth_point is not None and face_width is not None and face_width >= 10 and face_width <= w:
+                        # Estimate head pose
+                        yaw, pitch = estimate_head_pose(face_landmarks)
+                        head_distracted = (
+                            abs(yaw) > HEAD_YAW_DISTRACTION_THRESHOLD
+                            or abs(pitch) > HEAD_PITCH_DISTRACTION_THRESHOLD
+                        )
                     else:
-                        # No detector or detector disabled
-                        drink_near_mouth = False
+                        # Face detected but measurements invalid
+                        face_detected = False
+                        mouth_point = None
+                        face_width = None
                     
-                    # Compute risk score from three signals
+                    # Draw face mesh if valid
+                    if face_detected:
+                        draw_face_mesh(frame, face_results.multi_face_landmarks[0])
+
+                # ============================================================
+                # HAND DETECTION: Works independently of face
+                # ============================================================
+                if hand_results.multi_hand_landmarks and mouth_point is not None and face_width is not None:
+                    # Hand detected AND we have valid face measurements
+                    for hand_idx, hand_landmarks in enumerate(hand_results.multi_hand_landmarks):
+                        # Get hand index finger tip
+                        index_tip = get_hand_index_tip(hand_landmarks, w, h)
+                        
+                        # Compute normalized hand-to-mouth distance
+                        norm_dist = normalize_hand_mouth_distance(
+                            hand_landmarks.landmark[8],
+                            mouth_point,
+                            face_width,
+                            w,
+                            h,
+                        )
+                        
+                        if norm_dist is not None:
+                            if hand_mouth_dist_normalized is None:
+                                hand_mouth_dist_normalized = norm_dist
+                            else:
+                                hand_mouth_dist_normalized = min(hand_mouth_dist_normalized, norm_dist)
+                        
+                        # Draw hand landmarks
+                        mp_drawing.draw_landmarks(
+                            frame,
+                            hand_landmarks,
+                            mp_hands.HAND_CONNECTIONS,
+                        )
+
+                # ============================================================
+                # DRINK OBJECT DETECTION: Use as signal
+                # ============================================================
+                if ENABLE_DRINK_DETECTION and custom_drink_detector is not None:
+                    try:
+                        detections = custom_drink_detector.predict(frame)
+
+                        valid_detections = []
+
+                        for det in detections:
+                            obj_class = det.get('class', 'unknown').lower()
+                            
+                            # SKIP glass objects (high false positive rate)
+                            if 'glass' in obj_class or 'cup' in obj_class:
+                                continue
+                            
+                            x1, y1, x2, y2 = det["bbox"]
+                            bw = x2 - x1
+                            bh = y2 - y1
+
+                            # ❌ REJECT FULL FRAME / HUGE BOXES (noise)
+                            if bw > 0.8 * w and bh > 0.8 * h:
+                                continue
+
+                            # ❌ REJECT TOO SMALL NOISE (<20px)
+                            if bw < 20 or bh < 20:
+                                continue
+                            
+                            # ✅ VALID CUP/BOTTLE/CAN/MUG object
+                            valid_detections.append(det)
+
+                        # If we have valid drink objects, mark as detected
+                        # The risk scorer will weight based on hand proximity + head position
+                        if valid_detections:
+                            drink_near_mouth = True  # Valid object detected
+                            drink_objects = valid_detections
+                            if frame_number % 30 == 0:
+                                print(f"[DRINK-OBJ] {len(valid_detections)} valid object(s) detected: {[d['class'] for d in valid_detections]}")
+                        else:
+                            drink_near_mouth = False
+                            drink_objects = []
+
+                        # Draw all valid detections on frame (not just valid ones)
+                        if valid_detections:
+                            frame = custom_drink_detector.draw_detections(
+                                frame, valid_detections, color=(0, 255, 0), thickness=2
+                            )
+                            
+                    except Exception as e:
+                        print(f"[ERROR] YOLOv8 detection error: {e}")
+                        drink_near_mouth = False
+                        drink_objects = []
+
+                # ============================================================
+                # RISK SCORING: Behavior-based approach
+                # ============================================================
+                if face_detected and mouth_point is not None and face_width is not None:
+                    # Primary signal: hand near mouth
+                    # This is most reliable even without YOLO
                     risk_score = fuse_three_signals(
                         hand_mouth_dist_normalized,
                         drink_near_mouth,
                         head_distracted,
                     )
+                    
+                    # Debug: Show signal values
+                    if frame_number % 20 == 0:
+                        hand_str = f"{hand_mouth_dist_normalized:.2f}" if hand_mouth_dist_normalized else "N/A"
+                        print(f"[HEAD-POSE] yaw={yaw:.1f}° pitch={pitch:.1f}° distracted={head_distracted}")
+                        print(f"[SIGNALS] hand={hand_str}, drink={drink_near_mouth}, distracted={head_distracted} → risk={risk_score:.2f}")
+                else:
+                    # Face not detected - skip state machine updates but keep displaying
+                    if frame_number % 30 == 0:
+                        print(f"[WARN] Face detection failed on frame {frame_number}")
+                    risk_score = 0.0
+                    
+                print(f"[DEBUG] hand={hand_mouth_dist_normalized} | drink={drink_near_mouth} | head={head_distracted} | risk={risk_score}")
 
                 # ============================================================
                 # State Machine Update with Tuned Thresholds
+                # (Only run if face is detected for reliable risk scoring)
                 # ============================================================
-                frame_count_in_state += 1
-                drink_frame_counter.append(risk_score)
-                
-                # Store frame for potential snapshot
-                if ENABLE_DRINK_SNAPSHOTS:
-                    alert_snapshot_buffer.append(frame.copy())
-                
-                if state == DrinkState.IDLE:
-                    if risk_score >= DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE:
-                        frame_count_in_state = 0
-                        state = DrinkState.POSSIBLE_DRINKING
-                        print(f"[STATE] IDLE → POSSIBLE_DRINKING (risk={risk_score:.1f})")
-                        if csv_logger_path:
-                            log_drink_event(csv_logger_path, "POSSIBLE_DRINKING", risk_score, 
-                                          hand_mouth_dist_normalized, drink_near_mouth, head_distracted, frame_number)
-
-                elif state == DrinkState.POSSIBLE_DRINKING:
-                    if risk_score >= DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED:
-                        if frame_count_in_state >= DRINK_FRAMES_POSSIBLE_TO_CONFIRMED:
+                if face_detected and risk_score is not None:
+                    frame_count_in_state += 1
+                    drink_frame_counter.append(risk_score)
+                    
+                    # Store frame for potential snapshot
+                    if ENABLE_DRINK_SNAPSHOTS:
+                        alert_snapshot_buffer.append(frame.copy())
+                    
+                    if state == DrinkState.IDLE:
+                        if risk_score >= DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE:
                             frame_count_in_state = 0
-                            state = DrinkState.DRINKING
-                            print(f"[STATE] POSSIBLE_DRINKING → DRINKING (consistent for {frame_count_in_state} frames)")
+                            state = DrinkState.POSSIBLE_DRINKING
+                            print(f"[STATE] IDLE → POSSIBLE_DRINKING (risk={risk_score:.1f})")
                             if csv_logger_path:
-                                log_drink_event(csv_logger_path, "DRINKING", risk_score, 
+                                log_drink_event(csv_logger_path, "POSSIBLE_DRINKING", risk_score, 
                                               hand_mouth_dist_normalized, drink_near_mouth, head_distracted, frame_number)
-                    else:
-                        # Fallback to IDLE if risk drops
-                        if risk_score < DRINK_RISK_FALLBACK_THRESHOLD:
+
+                    elif state == DrinkState.POSSIBLE_DRINKING:
+                        if risk_score >= DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED:
+                            if frame_count_in_state >= DRINK_FRAMES_POSSIBLE_TO_CONFIRMED:
+                                print(f"[STATE] POSSIBLE_DRINKING → DRINKING (consistent for {frame_count_in_state} frames)")
+                                frame_count_in_state = 0
+                                state = DrinkState.DRINKING
+                                if csv_logger_path:
+                                    log_drink_event(csv_logger_path, "DRINKING", risk_score, 
+                                                  hand_mouth_dist_normalized, drink_near_mouth, head_distracted, frame_number)
+                        else:
+                            # Fallback to IDLE if risk drops
+                            if risk_score < DRINK_RISK_FALLBACK_THRESHOLD:
+                                frame_count_in_state = 0
+                                state = DrinkState.IDLE
+
+                    elif state == DrinkState.DRINKING:
+                        if risk_score >= DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT:
+                            if frame_count_in_state >= DRINK_FRAMES_CONFIRMED_TO_ALERT:
+                                frame_count_in_state = 0
+                                state = DrinkState.ALERT
+                                alert_until = now + DRINK_ALERT_DURATION
+                                last_alert_time = now
+                                drink_and_drive_count += 1
+                                
+                                # Play alarm
+                                play_alarm(ALARM_SOUND, ALARM_VOLUME)
+                                print(f"[ALERT] 🚨 DRINK AND DRIVE DETECTED! Event #{drink_and_drive_count}")
+                                
+                                # Log alert event
+                                if csv_logger_path:
+                                    log_drink_event(csv_logger_path, "ALERT", risk_score, 
+                                                  hand_mouth_dist_normalized, drink_near_mouth, head_distracted, frame_number)
+                                
+                                # Save snapshots
+                                if ENABLE_DRINK_SNAPSHOTS and len(alert_snapshot_buffer) > 0:
+                                    for snap_idx, snap_frame in enumerate(alert_snapshot_buffer):
+                                        snap_path = save_frame_snapshot(snap_frame, "ALERT", frame_number, snap_idx)
+                                        if snap_path:
+                                            print(f"  [SNAPSHOT] Saved: {snap_path}")
+                        else:
+                            # Fallback to IDLE if risk drops
+                            if risk_score < DRINK_RISK_FALLBACK_THRESHOLD:
+                                print(f"[STATE] DRINKING → IDLE (risk dropped to {risk_score:.1f})")
+                                frame_count_in_state = 0
+                                state = DrinkState.IDLE
+
+                    elif state == DrinkState.ALERT:
+                        if now >= alert_until:
                             frame_count_in_state = 0
                             state = DrinkState.IDLE
-
-                elif state == DrinkState.DRINKING:
-                    if risk_score >= DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT:
-                        if frame_count_in_state >= DRINK_FRAMES_CONFIRMED_TO_ALERT:
-                            frame_count_in_state = 0
-                            state = DrinkState.ALERT
-                            alert_until = now + DRINK_ALERT_DURATION
-                            last_alert_time = now
-                            drink_and_drive_count += 1
-                            
-                            # Play alarm
-                            play_alarm(ALARM_SOUND, ALARM_VOLUME)
-                            print(f"[ALERT] 🚨 DRINK AND DRIVE DETECTED! Event #{drink_and_drive_count}")
-                            
-                            # Log alert event
-                            if csv_logger_path:
-                                log_drink_event(csv_logger_path, "ALERT", risk_score, 
-                                              hand_mouth_dist_normalized, drink_near_mouth, head_distracted, frame_number)
-                            
-                            # Save snapshots
-                            if ENABLE_DRINK_SNAPSHOTS and len(alert_snapshot_buffer) > 0:
-                                for snap_idx, snap_frame in enumerate(alert_snapshot_buffer):
-                                    snap_path = save_frame_snapshot(snap_frame, "ALERT", frame_number, snap_idx)
-                                    if snap_path:
-                                        print(f"  [SNAPSHOT] Saved: {snap_path}")
-                    else:
-                        # Fallback to IDLE if risk drops
-                        if risk_score < DRINK_RISK_FALLBACK_THRESHOLD:
-                            frame_count_in_state = 0
-                            state = DrinkState.IDLE
-
-                elif state == DrinkState.ALERT:
-                    if now >= alert_until:
-                        frame_count_in_state = 0
-                        state = DrinkState.IDLE
-                        print(f"[STATE] ALERT → IDLE (alert duration expired)")
+                            print(f"[STATE] ALERT → IDLE (alert duration expired)")
+                else:
+                    # Face not detected - don't update state machine but keep last state
+                    if ENABLE_DRINK_SNAPSHOTS:
+                        alert_snapshot_buffer.append(frame.copy())
 
                 # ============================================================
                 # Overlay and Visualization
@@ -408,24 +467,40 @@ def main():
 
                 # Draw signal details
                 y_offset = 180
+                
+                # Face detection status
+                face_status_color = (100, 255, 100) if face_detected else (255, 100, 100)
+                cv2.putText(
+                    frame, f'Face Detected: {"Yes" if face_detected else "No"}', (20, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, face_status_color, 2
+                )
+                y_offset += 30
+                
                 if hand_mouth_dist_normalized is not None:
                     hand_color = (100, 255, 100) if hand_mouth_dist_normalized < DRINK_HAND_MOUTH_DISTANCE_THRESHOLD else (255, 100, 100)
                     cv2.putText(
-                        frame, f'Hand-Mouth: {hand_mouth_dist_normalized:.2f}', (20, y_offset),
+                        frame, f'Hand-Mouth: {hand_mouth_dist_normalized:.2f} (threshold: {DRINK_HAND_MOUTH_DISTANCE_THRESHOLD:.2f})', (20, y_offset),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, hand_color, 2
                     )
-                    y_offset += 30
+                else:
+                    cv2.putText(
+                        frame, f'Hand-Mouth: No hand detected', (20, y_offset),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 100, 100), 2
+                    )
+                y_offset += 30
 
                 drinks_color = (100, 255, 100) if drink_near_mouth else (255, 100, 100)
                 cv2.putText(
-                    frame, f'Drink Object: {"Yes" if drink_near_mouth else "No"}', (20, y_offset),
+                    frame, f'Drink Near Mouth: {"Yes" if drink_near_mouth else "No"}', (20, y_offset),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, drinks_color, 2
                 )
                 y_offset += 30
 
+                # Head distraction with pose angles
                 head_color = (100, 255, 100) if not head_distracted else (255, 100, 100)
+                head_status = f"Yes (yaw={yaw:.0f}°, pitch={pitch:.0f}°)" if head_distracted else f"No (yaw={yaw:.0f}°, pitch={pitch:.0f}°)"
                 cv2.putText(
-                    frame, f'Head Distracted: {"Yes" if head_distracted else "No"}', (20, y_offset),
+                    frame, f'Head Distracted: {head_status}', (20, y_offset),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, head_color, 2
                 )
 

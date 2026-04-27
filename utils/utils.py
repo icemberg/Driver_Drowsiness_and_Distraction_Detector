@@ -225,60 +225,99 @@ def normalize_hand_mouth_distance(hand_landmark, mouth_point, face_width, w, h):
 
 def estimate_head_pose(landmarks):
     """
-    Estimate head yaw and pitch from facial landmarks.
+    Estimate head yaw and pitch from facial landmarks using proper geometry.
     Returns: (yaw_degrees, pitch_degrees)
     
     Yaw: positive = face turned right, negative = face turned left
-    Pitch: positive = face tilted up, negative = face tilted down
+    Pitch: positive = face tilted up, negative = face turned down
     """
-    # Nose tip (landmark 1) and nose bridge (landmark 168)
-    nose_tip_x = landmarks[1].x
-    nose_base_x = landmarks[168].x
-    
-    # Eye centers
-    left_eye_center = (landmarks[33].x + landmarks[133].x) / 2
-    right_eye_center = (landmarks[362].x + landmarks[263].x) / 2
-    
-    # Horizontal offset indicates yaw
-    eye_center_x = (left_eye_center + right_eye_center) / 2
-    yaw = (nose_tip_x - eye_center_x) * 90  # Rough angle estimation
-    
-    # Vertical: use mouth and nose landmarks
-    mouth_center_y = (landmarks[13].y + landmarks[14].y) / 2
-    nose_y = landmarks[1].y
-    nose_bridge_y = landmarks[168].y
-    
-    pitch = (mouth_center_y - nose_y) * 80  # Rough angle estimation
-    
-    return yaw, pitch
+    try:
+        # Key landmarks (normalized 0-1)
+        nose_tip = np.array([landmarks[1].x, landmarks[1].y])
+        nose_bridge = np.array([landmarks[168].x, landmarks[168].y])
+        
+        # Eyes
+        left_eye = np.array([landmarks[33].x, landmarks[33].y])
+        right_eye = np.array([landmarks[263].x, landmarks[263].y])
+        
+        # Mouth
+        mouth_left = np.array([landmarks[61].x, landmarks[61].y])
+        mouth_right = np.array([landmarks[291].x, landmarks[291].y])
+        
+        # Chin (bottom of face)
+        chin = np.array([landmarks[152].x, landmarks[152].y])
+        
+        # Face reference measurements
+        eye_center = (left_eye + right_eye) / 2.0
+        face_width = np.linalg.norm(right_eye - left_eye)
+        face_height = np.linalg.norm(chin - nose_bridge)
+        
+        # Avoid division by zero
+        if face_width < 1e-6 or face_height < 1e-6:
+            return 0.0, 0.0
+        
+        # YAW: Horizontal offset of nose from eye center
+        # Normalize by face width for scale invariance
+        nose_horizontal_offset = (nose_tip[0] - eye_center[0]) / face_width
+        # Convert to degrees: ±1.0 offset ≈ ±45 degrees
+        yaw = np.clip(nose_horizontal_offset * 45, -90, 90)
+        
+        # PITCH: Vertical position of nose relative to face center
+        # Normalize by face height
+        face_center_y = (nose_bridge[1] + chin[1]) / 2.0
+        nose_vertical_offset = (nose_tip[1] - face_center_y) / face_height
+        # Convert to degrees: ±1.0 offset ≈ ±40 degrees
+        pitch = np.clip(nose_vertical_offset * 40, -90, 90)
+        
+        return float(yaw), float(pitch)
+        
+    except (AttributeError, IndexError, TypeError) as e:
+        print(f"[ERROR] Head pose estimation failed: {e}")
+        return 0.0, 0.0
 
 
 def check_drink_bbox_near_mouth(drink_bbox, mouth_point, face_width, frame_width, frame_height):
     """
     Check if a drink object bounding box is near the mouth region.
     drink_bbox format: [x_min, y_min, x_max, y_max] (in pixel coordinates)
-    Returns: True if bbox is in lower face region and close to mouth horizontally.
+    Returns: True if bbox is close to mouth (horizontally and vertically).
     """
-    if drink_bbox is None or len(drink_bbox) < 4:
+    if drink_bbox is None or len(drink_bbox) < 4 or mouth_point is None or face_width is None:
         return False
     
-    x_min, y_min, x_max, y_max = drink_bbox
-    bbox_center_x = (x_min + x_max) / 2
-    bbox_center_y = (y_min + y_max) / 2
-    
-    # Check if bbox is in lower half of face (below mouth level)
-    mouth_y = mouth_point[1]
-    lower_face_start = mouth_y + face_width * 0.05
-    
-    if bbox_center_y < lower_face_start:
+    try:
+        x_min, y_min, x_max, y_max = [float(v) for v in drink_bbox]
+        bbox_center_x = (x_min + x_max) / 2.0
+        bbox_center_y = (y_min + y_max) / 2.0
+        
+        mouth_x = float(mouth_point[0])
+        mouth_y = float(mouth_point[1])
+        face_w = float(face_width)
+        
+        # VERY RELAXED thresholds: detect drinks anywhere in upper half of frame
+        vertical_upper = mouth_y - face_w * 1.5  # 150% above
+        vertical_lower = mouth_y + face_w * 1.5  # 150% below
+        
+        horizontal_threshold = face_w * 1.5  # 150% of face width
+        
+        vertical_dist = abs(bbox_center_y - mouth_y)
+        horizontal_dist = abs(bbox_center_x - mouth_x)
+        
+        # Debug every detection
+        print(f"[PROX-CHECK] bbox=({x_min:.0f},{y_min:.0f},{x_max:.0f},{y_max:.0f}) center=({bbox_center_x:.0f},{bbox_center_y:.0f})")
+        print(f"  mouth=({mouth_x:.0f},{mouth_y:.0f}) face_w={face_w:.0f}")
+        print(f"  V: {vertical_dist:.0f} < {face_w*1.5:.0f}? {vertical_dist < face_w*1.5}")
+        print(f"  H: {horizontal_dist:.0f} < {face_w*1.5:.0f}? {horizontal_dist < face_w*1.5}")
+        
+        result = (vertical_dist < face_w * 1.5) and (horizontal_dist < face_w * 1.5)
+        print(f"  -> {result}")
+        return result
+        
+    except Exception as e:
+        print(f"[ERROR] Proximity check crashed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-    
-    # Check horizontal proximity to mouth
-    mouth_x = mouth_point[0]
-    horizontal_dist = abs(bbox_center_x - mouth_x)
-    proximity_threshold = face_width * 0.4  # Within 40% of face width
-    
-    return horizontal_dist < proximity_threshold
 
 
 def get_hand_index_tip(hand_landmarks, w, h):
@@ -298,23 +337,29 @@ def get_hand_index_tip(hand_landmarks, w, h):
 def initialize_drink_detection_logger():
     """Initialize directories and CSV logger for drink detection events."""
     try:
-        # Create log directories
-        if not os.path.exists(config.DRINK_LOG_DIRECTORY):
-            os.makedirs(config.DRINK_LOG_DIRECTORY)
+        # Create log directories using proper path construction
+        log_dir = os.path.normpath(config.DRINK_LOG_DIRECTORY)
+        os.makedirs(log_dir, exist_ok=True)
         
-        if config.ENABLE_DRINK_SNAPSHOTS and not os.path.exists(config.DRINK_SNAPSHOTS_DIRECTORY):
-            os.makedirs(config.DRINK_SNAPSHOTS_DIRECTORY)
+        if config.ENABLE_DRINK_SNAPSHOTS:
+            snapshots_dir = os.path.normpath(config.DRINK_SNAPSHOTS_DIRECTORY)
+            os.makedirs(snapshots_dir, exist_ok=True)
         
-        # Initialize CSV file with headers
-        csv_path = os.path.join(config.DRINK_LOG_DIRECTORY, config.DRINK_LOG_FILENAME)
+        # Initialize CSV file with headers (use normpath for consistency)
+        csv_path = os.path.normpath(os.path.join(log_dir, config.DRINK_LOG_FILENAME))
+        
+        # Create or append to CSV
         if not os.path.exists(csv_path):
-            with open(csv_path, 'w') as f:
+            with open(csv_path, 'w', buffering=1) as f:  # Line buffering for immediate writes
                 f.write("timestamp,event_type,risk_score,hand_mouth_distance,object_detected,head_distracted,frame_number\n")
+                f.flush()
         
-        print(f"[INFO] Drink detection logger initialized. Logs will be saved to {config.DRINK_LOG_DIRECTORY}")
+        print(f"[INFO] Drink detection logger initialized. Logs will be saved to {csv_path}")
         return csv_path
     except Exception as e:
         print(f"[ERROR] Failed to initialize drink detection logger: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -332,14 +377,40 @@ def log_drink_event(csv_path, event_type, risk_score, hand_mouth_distance, objec
         frame_number: Current frame number
     """
     try:
-        if csv_path is None or not config.ENABLE_DRINK_CSV_LOGGING:
+        if csv_path is None:
             return
         
+        if not config.ENABLE_DRINK_CSV_LOGGING:
+            return
+        
+        # Normalize path
+        csv_path = os.path.normpath(csv_path)
+        
+        # Ensure directory exists
+        csv_dir = os.path.dirname(csv_path)
+        os.makedirs(csv_dir, exist_ok=True)
+        
+        # Format timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        with open(csv_path, 'a') as f:
-            f.write(f"{timestamp},{event_type},{risk_score:.2f},{hand_mouth_distance if hand_mouth_distance else 'N/A'},{object_detected},{head_distracted},{frame_number}\n")
+        
+        # Format hand_mouth_distance (handle None)
+        hand_dist_str = f"{hand_mouth_distance:.3f}" if hand_mouth_distance is not None else "N/A"
+        
+        # Build CSV row
+        row = f"{timestamp},{event_type},{risk_score:.2f},{hand_dist_str},{object_detected},{head_distracted},{frame_number}\n"
+        
+        # Write with line buffering (immediate flush)
+        with open(csv_path, 'a', buffering=1) as f:
+            f.write(row)
+            f.flush()  # Explicit flush to ensure write
+        
+        # Debug logging
+        print(f"[LOG-WRITE] {event_type}: risk={risk_score:.2f}, drink={object_detected}, hand={hand_dist_str}, frame={frame_number}")
+        
     except Exception as e:
-        print(f"[ERROR] Failed to log drink event: {e}")
+        print(f"[ERROR] Failed to log drink event to {csv_path}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def save_frame_snapshot(frame, event_type, frame_number, snapshot_index):
@@ -359,9 +430,13 @@ def save_frame_snapshot(frame, event_type, frame_number, snapshot_index):
         if not config.ENABLE_DRINK_SNAPSHOTS:
             return None
         
+        # Ensure snapshot directory exists
+        snapshots_dir = config.DRINK_SNAPSHOTS_DIRECTORY
+        os.makedirs(snapshots_dir, exist_ok=True)
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"snapshot_{timestamp}_frame{frame_number}_{event_type}_snap{snapshot_index}.jpg"
-        filepath = os.path.join(config.DRINK_SNAPSHOTS_DIRECTORY, filename)
+        filepath = os.path.join(snapshots_dir, filename)
         
         # Save frame
         cv2.imwrite(filepath, frame)
@@ -463,7 +538,7 @@ def draw_drink_detections(frame, drink_objects, color=(0, 255, 0)):
         return frame
 
 
-def is_drink_object_near_mouth(drink_objects, mouth_point, face_width):
+def is_drink_object_near_mouth(drink_objects, mouth_point, face_width, frame_width=None, frame_height=None):
     """
     Check if any detected drink object is near the mouth region.
     
@@ -471,49 +546,73 @@ def is_drink_object_near_mouth(drink_objects, mouth_point, face_width):
         drink_objects: List of detected drink objects
         mouth_point: 2D point of mouth center [x, y]
         face_width: Width of face in pixels
+        frame_width: Frame width (optional)
+        frame_height: Frame height (optional)
     
     Returns:
         True if any drink object is near the mouth
     """
     try:
-        for obj in drink_objects:
+        if mouth_point is None or face_width is None or not drink_objects:
+            return False
+        
+        for idx, obj in enumerate(drink_objects):
             bbox = obj['bbox']
-            if check_drink_bbox_near_mouth(bbox, mouth_point, face_width, 640, 480):
+            fwidth = frame_width or 640
+            fheight = frame_height or 480
+            result = check_drink_bbox_near_mouth(bbox, mouth_point, face_width, fwidth, fheight)
+            
+            if result:
+                print(f"[PROX-OK] Object {idx} IS near mouth!")
                 return True
+        
         return False
     except Exception as e:
         print(f"[ERROR] Error checking drink object proximity to mouth: {e}")
         return False
 
 
-def calculate_weighted_risk_score(hand_proximity, object_detected, head_distracted, hand_threshold=0.15):
+def calculate_weighted_risk_score(hand_proximity, object_detected, head_distracted, hand_threshold=0.70):
     """
     Calculate weighted risk score from multiple signals.
+    
+    BEHAVIOR-BASED DRINKING DETECTION:
+    Progressively increasing score as signals align:
+    1. Head tilt = 0.7 (preparatory)
+    2. Head + hand near = 1.3+ (drinking action)  
+    3. Head + hand + object = 1.8+ (confirmed)
     
     Args:
         hand_proximity: Normalized hand-to-mouth distance (0-1)
         object_detected: Boolean, whether drink object was detected
-        head_distracted: Boolean, whether head is distracted
-        hand_threshold: Threshold for hand proximity (default 0.15)
+        head_distracted: Boolean, whether head is distracted/tilting
+        hand_threshold: Threshold for hand proximity (default 0.70 = RELAXED)
     
     Returns:
         Weighted risk score (0-3.0)
     """
-    score = 0.0
-    
-    # Hand proximity signal
-    if hand_proximity is not None and hand_proximity < hand_threshold:
-        hand_signal = 1.0 * config.SIGNAL_WEIGHT_HAND_PROXIMITY
-        score += hand_signal
-    
-    # Object detection signal
-    if object_detected:
-        object_signal = 1.0 * config.SIGNAL_WEIGHT_OBJECT_DETECTION
-        score += object_signal
-    
-    # Head distraction signal
+    risk = 0.0
+
+    # SIGNAL 1: Head distracted/tilting (always if true)
+    # Drinking involves tilting head back (positive pitch) - first indicator
     if head_distracted:
-        distraction_signal = 1.0 * config.SIGNAL_WEIGHT_HEAD_DISTRACTION
-        score += distraction_signal
-    
-    return min(score, 3.0)  # Cap at 3.0
+        risk += 0.7  # Preparatory signal
+
+    # SIGNAL 2: Hand near mouth (PRIMARY drinking indicator)  
+    # Most reliable - hand moving to mouth for drinking
+    if hand_proximity is not None and hand_proximity < hand_threshold:
+        risk += 0.6  # Hand near mouth signal
+        
+        # BONUS: If very close (<0.3), boost confidence
+        if hand_proximity < 0.30:
+            risk += 0.2  # Extra confidence when very close
+    elif hand_proximity is not None and hand_proximity < hand_threshold * 1.5:
+        # Hand somewhat far but detectable - weak signal
+        risk += 0.2
+
+    # SIGNAL 3: Object detection (weak but confirmatory)
+    # Only trust if head is tilting (drinking behavior confirmed)
+    if object_detected and head_distracted:
+        risk += 0.5  # Confirms what hand is carrying
+
+    return min(risk, 3.0)

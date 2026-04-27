@@ -162,12 +162,6 @@ class DrinkDatasetCollector:
         print("="*60)
 
 
-# ============================================================
-# Note: Old DrinkDetectorModel class removed - now using YOLOv8DrinkDetector
-# imported from yolov8_drink_detector.py
-# ============================================================
-
-
 def main():
     parser = argparse.ArgumentParser(description="Drink Detector Training Tool")
     parser.add_argument('--mode', type=str, default='collect_dataset',
@@ -175,7 +169,7 @@ def main():
                        help='Operation mode')
     parser.add_argument('--dataset_path', type=str, default='./drink_dataset',
                        help='Path to training dataset')
-    parser.add_argument('--model_path', type=str, default='./drink_detector_model.pkl',
+    parser.add_argument('--model_path', type=str, default='./models/yolov8n_drink.pt',
                        help='Path to save/load model')
     parser.add_argument('--download-threads', type=int, default=4,
                        help='Number of download threads for web mode')
@@ -231,7 +225,7 @@ def main():
             
             # Create YOLO formatted dataset.yaml
             print("Preparing YOLO dataset structure...")
-            dataset_yaml = create_dataset_yaml(args.dataset_path, output_path="dataset.yaml")
+            dataset_yaml = create_dataset_yaml(args.dataset_path, output_path="./features/drink_and_drive/dataset.yaml")
             
             if dataset_yaml is None:
                 print("❌ Failed to create dataset.yaml")
@@ -241,7 +235,7 @@ def main():
             
             # Initialize and train YOLOv8 detector
             print("\nInitializing YOLOv8n detector...")
-            detector = YOLOv8DrinkDetector()
+            detector = YOLOv8DrinkDetector(model_path="./features/drink_and_drive/yolov8n.pt")
             
             print(f"\nTraining YOLOv8n on drink dataset...")
             print(f"Dataset: {dataset_yaml}")

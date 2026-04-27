@@ -71,7 +71,7 @@ class YOLOv8DrinkDetector:
             raise
     
     def train(self, data_yaml: str, epochs: int = 50, imgsz: int = 640, 
-              device: str = "cpu", patience: int = 20, batch: int = 8):
+              device: str = "cpu", patience: int = 20, batch: int = 32):
         """
         Train YOLOv8 model on drink dataset.
         
@@ -95,6 +95,10 @@ class YOLOv8DrinkDetector:
         logger.info(f"Device: {device}")
         
         try:
+            # Get project root directory (go up 3 levels from this file)
+            project_root = Path(__file__).resolve().parent.parent.parent
+            runs_dir = project_root / "features" / "drink_and_drive" / "runs"
+            
             # Train model
             results = self.model.train(
                 data=data_yaml,
@@ -103,11 +107,11 @@ class YOLOv8DrinkDetector:
                 device=device,
                 patience=patience,
                 batch=batch,
-                cache=False,  # Disable caching to reduce disk I/O
+                cache=True,  # Disable caching to reduce disk I/O
                 save=True,
                 verbose=True,
-                project="runs/drink_detector",
-                name="train"
+                project=str(runs_dir),
+                name="drink_detector"
             )
             
             self.trained = True
@@ -259,6 +263,8 @@ class YOLOv8DrinkDetector:
         """
         try:
             if self.model:
+                # Create parent directories if they don't exist
+                Path(model_path).parent.mkdir(parents=True, exist_ok=True)
                 self.model.save(model_path)
                 logger.info(f"[OK] Model saved: {model_path}")
             else:
@@ -388,11 +394,13 @@ def create_dataset_yaml(dataset_dir: str, output_path: str = "dataset.yaml"):
         # Copy train images
         for img in train_imgs:
             try:
-                dest = yolo_images_train / img.name
+                # Include class name in filename to avoid collisions (e.g., beer_bottle_000001.jpg)
+                unique_name = f"{class_name}_{img.name}"
+                dest = yolo_images_train / unique_name
                 shutil.copy2(img, dest)
                 
                 # Create YOLO label file (full image bbox: class_id 0 0.5 0.5 1.0 1.0)
-                label_file = yolo_labels_train / (img.stem + ".txt")
+                label_file = yolo_labels_train / (unique_name.split('.')[0] + ".txt")
                 label_file.write_text(f"{class_idx} 0.5 0.5 1.0 1.0\n")
                 split_counts['train'] += 1
             except Exception as e:
@@ -401,10 +409,12 @@ def create_dataset_yaml(dataset_dir: str, output_path: str = "dataset.yaml"):
         # Copy val images
         for img in val_imgs:
             try:
-                dest = yolo_images_val / img.name
+                # Include class name in filename to avoid collisions
+                unique_name = f"{class_name}_{img.name}"
+                dest = yolo_images_val / unique_name
                 shutil.copy2(img, dest)
                 
-                label_file = yolo_labels_val / (img.stem + ".txt")
+                label_file = yolo_labels_val / (unique_name.split('.')[0] + ".txt")
                 label_file.write_text(f"{class_idx} 0.5 0.5 1.0 1.0\n")
                 split_counts['val'] += 1
             except Exception as e:
@@ -413,10 +423,12 @@ def create_dataset_yaml(dataset_dir: str, output_path: str = "dataset.yaml"):
         # Copy test images
         for img in test_imgs:
             try:
-                dest = yolo_images_test / img.name
+                # Include class name in filename to avoid collisions
+                unique_name = f"{class_name}_{img.name}"
+                dest = yolo_images_test / unique_name
                 shutil.copy2(img, dest)
                 
-                label_file = yolo_labels_test / (img.stem + ".txt")
+                label_file = yolo_labels_test / (unique_name.split('.')[0] + ".txt")
                 label_file.write_text(f"{class_idx} 0.5 0.5 1.0 1.0\n")
                 split_counts['test'] += 1
             except Exception as e:
