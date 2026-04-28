@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # C extensions
 *.so
@@ -46,31 +47,33 @@ coverage.xml
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
-
 # Environment
 .env
+.python-version
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+drowsy_env/
 
 # Project specific
 *.log
 log/
 logs/
-*.wav
-alarm.wav
 cascades/
+runs/
 
 # Media files
 videos/
 *.mp4
 *.avi
 *.mov
+# Ignore all audio files to save space...
+*.wav
+# ...BUT explicitly allow the main alarm to upload for the team!
+!alarm.wav 
 
 # IDE files
 .idea/
