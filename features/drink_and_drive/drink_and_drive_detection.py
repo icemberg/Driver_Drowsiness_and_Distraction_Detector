@@ -63,11 +63,13 @@ from utils.utils import (
 )
 
 # ============================================================
-# MediaPipe setup
+# MediaPipe setup — imported from shared setup
 # ============================================================
-mp_face_mesh = mp.solutions.face_mesh
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+from setup.setup import (
+    face_mesh as _shared_face_mesh,
+    hands as _shared_hands,
+    mp_face_mesh, mp_hands, mp_drawing,
+)
 
 # ============================================================
 # State Machine
@@ -128,7 +130,149 @@ def load_custom_drink_detector():
 
 
 # ============================================================
-# Main Detection Pipeline
+# Module-level state for process_frame() (used by orchestrator)
+# ============================================================
+_drink_state       = DrinkState.IDLE
+_drink_frame_ctr   = 0
+_drink_events      = 0
+_drink_alert_until = 0.0
+_drink_alarm_on    = False
+_drink_model       = None
+_drink_csv_path    = None
+_drink_initialized = False
+
+
+def _ensure_drink_init():
+    """Lazy-init drink model and CSV logger on first process_frame() call."""
+    global _drink_model, _drink_csv_path, _drink_initialized
+    if _drink_initialized:
+        return
+    _drink_initialized = True
+    if ENABLE_DRINK_DETECTION:
+        _drink_model = load_custom_drink_detector()
+    if ENABLE_DRINK_CSV_LOGGING:
+        try:
+            _drink_csv_path = initialize_drink_detection_logger()
+        except Exception as e:
+            print(f"[WARN] Drink CSV logger failed: {e}")
+
+
+def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0, silent=False):
+    """
+    Process one frame for drink-and-drive detection.
+
+    Args:
+        face_landmarks: mediapipe face_landmarks object (or None).
+        hand_results:   mediapipe hands results object.
+        frame:          BGR frame (for YOLOv8 object detection).
+        w, h:           frame dimensions.
+        now:            current time.time().
+        frame_number:   current frame count.
+        silent:         if True, suppress alarm.
+
+    Returns:
+        dict with keys: face, state, risk, events, hand_dist, drink_obj, head_dist
+    """
+    global _drink_state, _drink_frame_ctr, _drink_events
+    global _drink_alert_until, _drink_alarm_on
+
+    _ensure_drink_init()
+
+    base = {"face": False, "state": _drink_state.name,
+            "risk": 0.0, "events": _drink_events,
+            "hand_dist": None, "drink_obj": False, "head_dist": False}
+
+    if face_landmarks is None:
+        return base
+
+    lms  = face_landmarks.landmark
+    m_pt = mouth_center(lms, w, h)
+    fw   = estimate_face_width(lms, w)
+
+    if m_pt is None or fw is None or fw < 10 or fw > w:
+        return {**base, "face": True}
+
+    # Head distraction
+    yaw, pitch = estimate_head_pose(lms)
+    head_dist  = (abs(yaw) > HEAD_YAW_DISTRACTION_THRESHOLD or
+                  abs(pitch) > HEAD_PITCH_DISTRACTION_THRESHOLD)
+
+    # Hand proximity
+    hand_norm = None
+    if hand_results.multi_hand_landmarks:
+        for hl in hand_results.multi_hand_landmarks:
+            d = normalize_hand_mouth_distance(hl.landmark[8], m_pt, fw, w, h)
+            if d is not None:
+                hand_norm = min(hand_norm, d) if hand_norm is not None else d
+
+    # YOLOv8 drink object detection
+    drink_obj = False
+    if _drink_model is not None:
+        try:
+            dets = _drink_model.predict(frame)
+            drink_obj = any(
+                det.get("confidence", 0) >= DRINK_DETECTION_CONFIDENCE_THRESHOLD
+                for det in dets
+            )
+        except Exception:
+            pass
+
+    # Risk score
+    risk = fuse_three_signals(hand_norm, drink_obj, head_dist,
+                              DRINK_HAND_MOUTH_DISTANCE_THRESHOLD)
+
+    # State machine
+    _drink_frame_ctr += 1
+    if _drink_state == DrinkState.IDLE:
+        if risk >= DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE:
+            _drink_frame_ctr = 0
+            _drink_state = DrinkState.POSSIBLE_DRINKING
+    elif _drink_state == DrinkState.POSSIBLE_DRINKING:
+        if risk >= DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED:
+            if _drink_frame_ctr >= DRINK_FRAMES_POSSIBLE_TO_CONFIRMED:
+                _drink_frame_ctr = 0
+                _drink_state = DrinkState.DRINKING
+        elif risk < DRINK_RISK_FALLBACK_THRESHOLD:
+            _drink_frame_ctr = 0
+            _drink_state = DrinkState.IDLE
+    elif _drink_state == DrinkState.DRINKING:
+        if risk >= DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT:
+            if _drink_frame_ctr >= DRINK_FRAMES_CONFIRMED_TO_ALERT:
+                _drink_frame_ctr   = 0
+                _drink_state       = DrinkState.ALERT
+                _drink_alert_until = now + DRINK_ALERT_DURATION
+                _drink_events     += 1
+                if _drink_csv_path:
+                    log_drink_event(_drink_csv_path, "ALERT", risk,
+                                    hand_norm, drink_obj, head_dist, frame_number)
+                if not _drink_alarm_on:
+                    _drink_alarm_on = True
+                    if not silent:
+                        play_alarm(ALARM_SOUND, ALARM_VOLUME)
+        elif risk < DRINK_RISK_FALLBACK_THRESHOLD:
+            _drink_frame_ctr = 0
+            _drink_state = DrinkState.IDLE
+    elif _drink_state == DrinkState.ALERT:
+        if now >= _drink_alert_until:
+            _drink_frame_ctr = 0
+            _drink_state = DrinkState.IDLE
+            _drink_alarm_on = False
+
+    return {"face": True, "state": _drink_state.name,
+            "risk": round(risk, 2), "events": _drink_events,
+            "hand_dist": hand_norm, "drink_obj": drink_obj, "head_dist": head_dist}
+
+
+def reset_drink_state():
+    """Reset module-level drink state."""
+    global _drink_state, _drink_frame_ctr, _drink_events
+    global _drink_alert_until, _drink_alarm_on
+    _drink_state = DrinkState.IDLE; _drink_frame_ctr = 0
+    _drink_events = 0; _drink_alert_until = 0.0; _drink_alarm_on = False
+
+
+# ============================================================
+# Standalone Main Detection Pipeline
 # ============================================================
 def main():
     if ENABLE_LOGGING:
@@ -176,19 +320,10 @@ def main():
     print("Press ESC to exit\n")
 
     try:
-        with mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        ) as face_mesh_ctx, mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        ) as hands_ctx:
+        face_mesh_ctx = _shared_face_mesh
+        hands_ctx     = _shared_hands
 
-            while cap.isOpened():
+        while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break

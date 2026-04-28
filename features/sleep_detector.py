@@ -3,14 +3,11 @@ import time
 import argparse
 import numpy as np
 import pygame
-import mediapipe as mp
 from datetime import datetime
 import config.config as config
 from utils.utils import play_alarm, log_drowsiness_event, resize_frame, is_looking_away
+from setup.setup import face_mesh as _shared_face_mesh, mp_face_mesh, mp_drawing, mp_drawing_styles
 
-mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
 left_eye_landmarks = None
 right_eye_landmarks = None
 
@@ -59,18 +56,73 @@ def calculate_ear(eye_landmarks):
 def extract_eye_landmarks(face_landmarks, eye_indices):
     return [face_landmarks.landmark[idx] for idx in eye_indices]
 
+
+# ── Module-level state for process_frame() (used by orchestrator) ─────────────
+_sleep_counter = 0
+_sleep_alarm_on = False
+_ear_history = []
+
+
+def process_frame(face_landmarks, w=None, h=None, silent=False):
+    """
+    Process one frame for drowsiness detection.
+
+    Args:
+        face_landmarks: mediapipe face_landmarks object (multi_face_landmarks[0]),
+                        or None if no face detected.
+        w, h:           frame dimensions (unused here, kept for API consistency).
+        silent:         if True, suppress alarm.
+
+    Returns:
+        dict with keys: face, ear, counter, drowsy
+    """
+    global _sleep_counter, _sleep_alarm_on, _ear_history
+
+    if face_landmarks is None:
+        _sleep_counter = max(0, _sleep_counter - 1)
+        return {"face": False, "ear": 0.0, "counter": _sleep_counter, "drowsy": False}
+
+    left_lms  = extract_eye_landmarks(face_landmarks, LEFT_EYE_INDICES)
+    right_lms = extract_eye_landmarks(face_landmarks, RIGHT_EYE_INDICES)
+    ear = (calculate_ear(left_lms) + calculate_ear(right_lms)) / 2.0
+
+    _ear_history.append(ear)
+    if len(_ear_history) > 5:
+        _ear_history.pop(0)
+    smoothed = sum(_ear_history) / len(_ear_history)
+
+    drowsy = False
+    if smoothed < config.EYE_AR_THRESHOLD:
+        _sleep_counter += 1
+        drowsy = _sleep_counter >= config.EYE_AR_CONSEC_FRAMES
+        if drowsy and not _sleep_alarm_on:
+            _sleep_alarm_on = True
+            if not silent:
+                play_alarm(config.ALARM_SOUND, config.ALARM_VOLUME)
+    else:
+        if smoothed > config.EYE_AR_THRESHOLD + 0.02:
+            _sleep_counter = 0
+            _sleep_alarm_on = False
+
+    return {"face": True, "ear": round(smoothed, 3),
+            "counter": _sleep_counter, "drowsy": drowsy}
+
+
+def reset_sleep_state():
+    """Reset module-level sleep state."""
+    global _sleep_counter, _sleep_alarm_on, _ear_history
+    _sleep_counter = 0
+    _sleep_alarm_on = False
+    _ear_history.clear()
+
+
 def main():
     args = parse_arguments()
     if args.log:
         from utils.utils import initialize_logger
         initialize_logger(config.LOG_FILE)
     pygame.mixer.init()
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
+    face_mesh = _shared_face_mesh  # use shared instance from setup/
     COUNTER = 0
     ALARM_ON = False
     ear_history = []

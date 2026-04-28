@@ -1,21 +1,8 @@
 import cv2
-import mediapipe as mp
 import numpy as np
-import math
 import config.config as config
 from utils.utils import play_alarm
-
-# Initialize MediaPipe
-mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
-
-face_mesh = mp_face_mesh.FaceMesh(
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
-)
+from setup.setup import face_mesh as _shared_face_mesh, mp_face_mesh, mp_drawing, mp_drawing_styles
 
 
 # -------------------------------
@@ -128,9 +115,72 @@ def get_status(face_landmarks, w, h):
     return is_gazing_away, metrics, is_off_center
 
 
-# -------------------------------
-# Main Loop
-# -------------------------------
+# ── Module-level state for process_frame() (used by orchestrator) ─────────────
+_dist_counter = 0
+_dist_alarm_on = False
+_no_face_counter = 0
+
+
+def process_frame(face_landmarks, w, h, silent=False):
+    """
+    Process one frame for distraction detection.
+
+    Args:
+        face_landmarks: mediapipe face_landmarks object (multi_face_landmarks[0]),
+                        or None if no face detected.
+        w, h:           frame dimensions.
+        silent:         if True, suppress alarm.
+
+    Returns:
+        dict with keys: face, distracted, gaze, head, center, yaw, pitch, roll, no_face_frames
+    """
+    global _dist_counter, _dist_alarm_on, _no_face_counter
+
+    if face_landmarks is None:
+        _no_face_counter += 1
+        _dist_counter = 0
+        _dist_alarm_on = False
+        return {"face": False, "distracted": False, "gaze": False,
+                "head": False, "center": False,
+                "yaw": 0.0, "pitch": 0.0, "roll": 0.0,
+                "no_face_frames": _no_face_counter}
+
+    _no_face_counter = 0
+    gaze_away, metrics, off_center = get_status(face_landmarks, w, h)
+
+    frame_distracted = gaze_away or (not metrics["forward"]) or off_center
+    if frame_distracted:
+        _dist_counter += 1
+    else:
+        _dist_counter = 0
+        _dist_alarm_on = False
+
+    distracted = _dist_counter >= config.DISTRACTION_CONSEC_FRAMES
+    if distracted and not _dist_alarm_on:
+        _dist_alarm_on = True
+        if not silent:
+            play_alarm(config.ALARM_SOUND, config.ALARM_VOLUME)
+
+    return {
+        "face": True, "distracted": distracted,
+        "gaze": gaze_away, "head": not metrics["forward"],
+        "center": off_center,
+        "yaw": round(metrics["yaw"], 1),
+        "pitch": round(metrics["pitch"], 1),
+        "roll": round(metrics["roll"], 1),
+        "no_face_frames": 0,
+    }
+
+
+def reset_distraction_state():
+    """Reset module-level distraction state."""
+    global _dist_counter, _dist_alarm_on, _no_face_counter
+    _dist_counter = 0
+    _dist_alarm_on = False
+    _no_face_counter = 0
+
+
+# ── Standalone main ───────────────────────────────────────────────────────────
 def main():
 
     cap = cv2.VideoCapture(config.CAMERA_INDEX)
@@ -154,7 +204,7 @@ def main():
         h, w, _ = frame.shape
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb_frame)
+        results = _shared_face_mesh.process(rgb_frame)
 
         if results.multi_face_landmarks:
 
