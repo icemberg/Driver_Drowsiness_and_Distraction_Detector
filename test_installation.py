@@ -20,7 +20,10 @@ def check_installation():
         "numpy": "numpy",
         "pygame": "pygame",
         "mediapipe": "mediapipe",
-        "matplotlib": "matplotlib"
+        "matplotlib": "matplotlib",
+        "ultralytics": "ultralytics",  
+        "torch": "torch",              
+        "pyttsx3": "pyttsx3"           
     }
 
     missing_modules = []

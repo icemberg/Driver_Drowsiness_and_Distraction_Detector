@@ -40,7 +40,16 @@ from features.drink_and_drive.drink_and_drive_detection import (
     process_frame as drink_process,
     reset_drink_state,
 )
+from features.drink_and_drive.drink_and_drive_detection import (
+    process_frame as drink_process,
+    reset_drink_state,
+)
 
+# ADD YOUR FEATURE HERE:
+from features.phone_tracking.phone_tracker import (
+    process_frame as phone_process,
+    reset_phone_state,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pipeline wrapper (thin orchestrator)
@@ -57,6 +66,7 @@ class DriverSafetyPipeline:
         self.enable_distraction = True
         self.enable_yawning     = True
         self.enable_drink       = True
+        self.enable_phone       = True
         self._last_t = time.time()
         self._frame_number = 0
 
@@ -112,6 +122,10 @@ class DriverSafetyPipeline:
                           self._frame_number, silent=self.silent)
             if self.enable_drink else None
         )
+        results["phone"] = (
+            phone_process(frame, w, h, now, silent=self.silent)
+            if self.enable_phone else None
+        )
 
         return results
 
@@ -160,6 +174,15 @@ class DriverSafetyPipeline:
             if dk["state"] == "ALERT":
                 alerts.append("DRINK & DRIVE")
 
+        ph = results.get("phone")
+        if ph:
+            state_col = {"IDLE": (0, 255, 0), "POSSIBLE_PHONE_USE": (0, 255, 255),
+                         "CONFIRMED_PHONE_USE": (0, 165, 255), "ALERT": (0, 0, 255)}
+            col = state_col.get(ph["state"], (200, 200, 200))
+            put(f"[Phone]  {ph['state']}  Risk:{ph['risk']:.1f}/3.0", col)
+            if ph["state"] == "ALERT":
+                alerts.append("PHONE USE")
+
         if alerts:
             h_  = out.shape[0]
             ov  = out.copy()
@@ -184,6 +207,7 @@ class DriverSafetyPipeline:
         reset_distraction_state()
         reset_yawning_state()
         reset_drink_state()
+        reset_phone_state()
         self._frame_number = 0
         print("[INFO] All counters reset.")
 
