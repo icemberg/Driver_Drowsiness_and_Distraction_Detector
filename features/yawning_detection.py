@@ -1,15 +1,14 @@
 import cv2
-import mediapipe as mp
 import numpy as np
 import time
 from collections import deque
-from config import (
+from config.config import (
     CAMERA_INDEX,
     FRAME_WIDTH,
     FRAME_HEIGHT
 )
-from utils import play_alarm, initialize_logger, mouth_center, hand_near_mouth, calculate_mouth_aspect_ratio, calculate_eye_aspect_ratio, draw_face_mesh
-from config import (
+from utils.utils import play_alarm, initialize_logger, mouth_center, hand_near_mouth, calculate_mouth_aspect_ratio, calculate_eye_aspect_ratio, draw_face_mesh
+from config.config import (
     MAR_THRESHOLD,
     EAR_THRESHOLD,
     MIN_YAWN_DURATION,
@@ -23,26 +22,10 @@ from config import (
     ENABLE_LOGGING,
     LOG_FILE,
 )
-
-# ============================================================
-# MediaPipe setup
-# ============================================================
-mp_face_mesh = mp.solutions.face_mesh
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-
-face_mesh = mp_face_mesh.FaceMesh(
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
-)
-
-hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
+from setup.setup import (
+    face_mesh as _shared_face_mesh,
+    hands as _shared_hands,
+    mp_face_mesh, mp_hands, mp_drawing,
 )
 
 # ============================================================
@@ -57,6 +40,118 @@ RIGHT_MOUTH = 308
 RIGHT_EYE = [33, 160, 158, 133, 153, 144]
 LEFT_EYE = [362, 385, 387, 263, 373, 380]
 
+
+# ── Module-level state for process_frame() (used by orchestrator) ─────────────
+_mar_hist    = deque(maxlen=SMOOTH_WINDOW)
+_ear_y_hist  = deque(maxlen=SMOOTH_WINDOW)
+_yawn_count  = 0
+_yawn_alert_until = 0.0
+_yawn_cooldown    = 0.0
+_mouth_open_t     = None
+_eye_closed_overlap     = 0.0
+_hand_seen_during_mouth = False
+_yawn_counted_this_event = False
+_yawn_alarm_on = False
+
+
+def process_frame(face_landmarks, hand_results, w, h, now, dt, silent=False):
+    """
+    Process one frame for yawning detection.
+
+    Args:
+        face_landmarks: mediapipe face_landmarks object (or None).
+        hand_results:   mediapipe hands results object.
+        w, h:           frame dimensions.
+        now:            current time.time().
+        dt:             delta time since last frame.
+        silent:         if True, suppress alarm.
+
+    Returns:
+        dict with keys: face, mar, ear, yawning, yawn_count, hand_near
+    """
+    global _mar_hist, _ear_y_hist, _yawn_count, _yawn_alert_until
+    global _yawn_cooldown, _mouth_open_t, _eye_closed_overlap
+    global _hand_seen_during_mouth, _yawn_counted_this_event, _yawn_alarm_on
+
+    if face_landmarks is None:
+        return {"face": False, "mar": 0.0, "ear": 0.0,
+                "yawning": False, "yawn_count": _yawn_count, "hand_near": False}
+
+    lms = face_landmarks.landmark
+    mar = calculate_mouth_aspect_ratio(lms, w, h)
+    le  = calculate_eye_aspect_ratio(lms, LEFT_EYE, w, h)
+    re  = calculate_eye_aspect_ratio(lms, RIGHT_EYE, w, h)
+    ear = (le + re) / 2.0
+
+    _mar_hist.append(mar)
+    _ear_y_hist.append(ear)
+    sm_mar = float(np.mean(_mar_hist))
+    sm_ear = float(np.mean(_ear_y_hist))
+
+    mouth_open  = sm_mar > MAR_THRESHOLD
+    eyes_closed = sm_ear < EAR_THRESHOLD
+
+    m_pt = mouth_center(lms, w, h)
+    hand_close = False
+    if hand_results.multi_hand_landmarks and m_pt is not None:
+        for hl in hand_results.multi_hand_landmarks:
+            near, _ = hand_near_mouth(hl, m_pt, w, h, HAND_MOUTH_DISTANCE_PX)
+            hand_close = hand_close or near
+
+    # Score-based yawn detection (same logic as standalone main)
+    if mouth_open:
+        if _mouth_open_t is None:
+            _mouth_open_t            = now
+            _eye_closed_overlap      = 0.0
+            _hand_seen_during_mouth  = hand_close
+            _yawn_counted_this_event = False
+        else:
+            _hand_seen_during_mouth = _hand_seen_during_mouth or hand_close
+
+        if eyes_closed:
+            _eye_closed_overlap += dt
+
+        dur   = now - _mouth_open_t
+        score = (1.0 if dur >= MIN_YAWN_DURATION else 0.0) + \
+                (1.0 if _eye_closed_overlap >= MIN_EYE_CLOSED_OVERLAP else 0.0) + \
+                (0.25 if _hand_seen_during_mouth else 0.0)
+
+        if (not _yawn_counted_this_event
+                and now >= _yawn_cooldown
+                and score >= 2.0):
+            _yawn_count += 1
+            _yawn_alert_until    = now + YAWN_ALERT_DURATION
+            _yawn_cooldown       = now + YAWN_COOLDOWN
+            _yawn_counted_this_event = True
+            if not _yawn_alarm_on:
+                _yawn_alarm_on = True
+                if not silent:
+                    play_alarm(ALARM_SOUND, ALARM_VOLUME)
+    else:
+        _mouth_open_t            = None
+        _eye_closed_overlap      = 0.0
+        _hand_seen_during_mouth  = False
+        _yawn_counted_this_event = False
+        _yawn_alarm_on           = False
+
+    is_yawning = now < _yawn_alert_until
+    return {"face": True, "mar": round(sm_mar, 3), "ear": round(sm_ear, 3),
+            "yawning": is_yawning, "yawn_count": _yawn_count, "hand_near": hand_close}
+
+
+def reset_yawning_state():
+    """Reset module-level yawning state."""
+    global _yawn_count, _yawn_alert_until, _yawn_cooldown
+    global _mouth_open_t, _eye_closed_overlap, _hand_seen_during_mouth
+    global _yawn_counted_this_event, _yawn_alarm_on
+    _mar_hist.clear(); _ear_y_hist.clear()
+    _yawn_count = 0; _yawn_alert_until = 0.0; _yawn_cooldown = 0.0
+    _mouth_open_t = None; _eye_closed_overlap = 0.0
+    _hand_seen_during_mouth = False; _yawn_counted_this_event = False
+    _yawn_alarm_on = False
+
+
+# ── Standalone main ───────────────────────────────────────────────────────────
 def main():
     if ENABLE_LOGGING:
         initialize_logger(LOG_FILE)
@@ -89,19 +184,10 @@ def main():
 
     print("Press ESC to exit")
 
-    try:
-        with mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        ) as face_mesh, mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        ) as hands:
+    face_mesh = _shared_face_mesh  # use shared instance
+    hands = _shared_hands           # use shared instance
 
+    try:
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:

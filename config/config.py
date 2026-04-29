@@ -151,3 +151,103 @@ YAWN_COOLDOWN = 2.0
 YAWN_ALERT_DURATION = 1.5
 YAWN_FRAMES = 25   # ~1 sec at 25 FPS
 MIN_YAWN_DURATION = 1.2   # seconds to confirm a yawn
+
+##########################
+# DRINK AND DRIVE DETECTION#
+##########################
+
+# Hand-to-mouth detection thresholds (TUNED FOR ACTUAL DRINKING DETECTION)
+DRINK_HAND_MOUTH_DISTANCE_THRESHOLD = 0.70  # Normalized distance (0-1): RELAXED to 0.5 for realistic detection
+DRINK_SUSTAINED_FRAMES = 12  # Consecutive frames (at 30 fps, ~0.4 seconds)
+
+# State machine thresholds
+DRINK_POSSIBLE_FRAMES = 3  # Frames to transition to POSSIBLE_DRINKING
+DRINK_CONFIRMED_FRAMES = 8  # Frames to transition to DRINKING
+DRINK_ALERT_FRAMES = 15  # Frames to trigger ALERT state
+
+# Head pose distraction indicators (degrees) - REDUCED for pitch-up detection
+HEAD_YAW_DISTRACTION_THRESHOLD = 15  # Head turned left/right (yaw) - kept loose
+HEAD_PITCH_DISTRACTION_THRESHOLD = 6   # Head tilted up/down (pitch) - REDUCED to catch upward tilt
+
+# Drink object detector settings
+DRINK_DETECTION_CONFIDENCE_THRESHOLD = 0.5
+DRINK_OBJECT_CLASSES = ['cup', 'bottle', 'mug', 'can', 'glass']
+
+# Drink-object position relative to face (normalized)
+DRINK_BBOX_FACE_PROXIMITY_THRESHOLD = 0.3  # How close bbox should be to lower face region
+
+# Cooldown between alerts (seconds)
+DRINK_ALERT_COOLDOWN = 3.0
+DRINK_ALERT_DURATION = 2.0
+
+##############################################
+# DRINK OBJECT DETECTION (YOLOv8)           #
+##############################################
+
+# YOLOv8 Object Detector parameters
+DRINK_OBJECT_DETECTOR_MODEL = "yolov8n"  # YOLOv8 Nano (lightweight, real-time)
+DRINK_DETECTOR_CONFIDENCE_THRESHOLD = 0.6  # 60% confidence for detection
+DRINK_DETECTOR_BOX_AREA_MIN_PIXELS = 500  # Minimum bounding box area
+DRINK_DETECTOR_MODEL_PATH = "./models/yolov8n_drink.pt"  # Path to trained model
+
+# Custom drink classes to detect (must match training labels)
+DRINK_CLASSES = ['cup', 'bottle', 'mug', 'can', 'glass', 'drinking_bottle', 'soda_can', 'beer_bottle', 'water_bottle', 'tea_cup']
+DRINK_OBJECT_DETECTION_ENABLED = True
+
+# Mouth region definition (relative to face bounding box)
+MOUTH_REGION_TOP_RATIO = 0.65  # 65% down from top of face
+MOUTH_REGION_BOTTOM_RATIO = 0.95  # 95% down from top of face
+MOUTH_REGION_LEFT_RATIO = 0.25  # 25% from left edge of face
+MOUTH_REGION_RIGHT_RATIO = 0.75  # 75% from right edge of face
+
+############################################
+# TUNED STATE TRANSITION THRESHOLDS       #
+############################################
+# These are optimized for real driving scenarios
+
+# State transition thresholds (based on risk score 0-3) - TUNED FOR BEHAVIOR DETECTION
+DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE = 0.4  # Low threshold: head tilt alone triggers investigation
+DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED = 0.9  # Hand + head signals together (primary drinking indicator)
+DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 1.3  # Hand + head + object detected (high confidence)
+
+# Frame consistency requirements (at 30fps)
+DRINK_FRAMES_IDLE_TO_POSSIBLE = 5  # ~0.17 seconds
+DRINK_FRAMES_POSSIBLE_TO_CONFIRMED = 10  # ~0.33 seconds
+DRINK_FRAMES_CONFIRMED_TO_ALERT = 12  # ~0.40 seconds
+
+# Fallback thresholds (drop to idle if risk falls below)
+DRINK_RISK_FALLBACK_THRESHOLD = 1.0
+
+# Signal weights for fused risk score
+SIGNAL_WEIGHT_HAND_PROXIMITY = 1.0
+SIGNAL_WEIGHT_OBJECT_DETECTION = 1.0
+SIGNAL_WEIGHT_HEAD_DISTRACTION = 0.5
+
+############################################
+# EVENT LOGGING AND SNAPSHOTS             #
+############################################
+
+# Logging directory and settings
+DRINK_LOG_DIRECTORY = "features/drink_and_drive/drink_detection_logs"
+DRINK_LOG_FILENAME = "drink_and_drive_events.csv"
+DRINK_SNAPSHOTS_DIRECTORY = "features/drink_and_drive/drink_detection_logs/snapshots"
+DRINK_EVENT_SNAPSHOT_COUNT = 6  # Number of frames to capture around alert
+
+# Enable/disable features
+ENABLE_DRINK_DETECTION = True
+ENABLE_DRINK_SNAPSHOTS = True
+ENABLE_DRINK_CSV_LOGGING = True
+############################################
+# PHONE DETECTION PARAMETERS               #
+############################################
+
+# Enable/disable the phone detection feature
+ENABLE_PHONE_DETECTION = True
+
+# Frame consistency requirements (at 30fps)
+PHONE_FRAMES_IDLE_TO_POSSIBLE = 5    # ~0.17 seconds to trigger warning
+PHONE_FRAMES_POSSIBLE_TO_ALERT = 10  # ~0.33 seconds to trigger alarm
+
+# Lockout and Cooldown
+PHONE_LOCKOUT_DURATION = 5.0         # Seconds to stay in ALERT mode
+
