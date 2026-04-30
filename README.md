@@ -2,7 +2,7 @@
 
 # 🚗 Driver Drowsiness & Distraction Detector
 
-**A real-time, multi-signal safety system that detects driver drowsiness, distraction, yawning, and drink-while-driving behavior using computer vision — and raises an alarm before an accident happens.**
+**A real-time, multi-signal safety system that detects driver drowsiness, distraction, yawning, drink-while-driving behavior, and phone usage using computer vision — and raises an alarm before an accident happens.**
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.5%2B-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)](https://opencv.org/)
@@ -15,29 +15,6 @@
 
 </div>
 
-<<<<<<< HEAD
-### System Requirements
-
-- Python 3.8 or higher
-- Webcam or camera device
-- Minimum 4GB RAM recommended
-
-### Python Dependencies
-
-Install the required packages using:
-
-```bash
-pip install -r requirements.txt
-```
-
-**Main Dependencies:**
-
-- `opencv-python>=4.5.0` - Computer vision and image processing
-- `numpy>=1.20.0` - Numerical computing
-- `mediapipe>=0.8.10` - Face mesh detection and facial landmark tracking
-- `pygame>=2.0.0` - Audio playback for alarms
-- `matplotlib>=3.4.0` - Plotting and visualization
-=======
 ---
 
 ## 📋 Table of Contents
@@ -61,16 +38,17 @@ pip install -r requirements.txt
 
 ## ✨ Key Features
 
-- 🖥️ **Unified Dashboard** — Streamlit-based live dashboard runs all four detectors on a single camera feed simultaneously
+- 🖥️ **Unified Dashboard** — Streamlit-based live dashboard runs all five detectors on a single camera feed simultaneously
 - 👁️ **Real-time Drowsiness Detection** — Eye Aspect Ratio (EAR) with smoothed temporal averaging to eliminate flicker and false positives
 - 🔄 **Head Pose Estimation** — Computes calibrated yaw, pitch, and roll from facial landmarks using vector cross-product geometry
 - 👀 **Iris Gaze Tracking** — Detects off-centre gaze by tracking iris position relative to eye corners (MediaPipe Iris)
 - 😮 **Yawning Detection** — Mouth Aspect Ratio (MAR) + eye closure overlap + hand-near-mouth scoring with cooldown logic
-- 🍺 **Drink-While-Driving Detection** — YOLOv8n object detection fused with hand-proximity signals and a 4-state machine (IDLE → POSSIBLE → DRINKING → ALERT)
+- 🍺 **Drink-While-Driving Detection** — YOLOv8n object detection fused with hand-proximity signals and a 4-state machine (IDLE → POSSIBLE → DRINKING → ALERT) with grace-frame tolerance for noisy hand tracking
+- 📱 **Phone Use Detection** — YOLOv8 phone detector with a 4-state machine (IDLE → POSSIBLE_PHONE_USE → CONFIRMED_PHONE_USE → ALERT); alarm fires on confirmed use
 - 🔗 **Multi-Signal Fusion** — Weighted risk scoring combines EAR, gaze, head pose, drink object confidence, and hand-to-mouth distance
 - 🧩 **DRY Modular Architecture** — Shared MediaPipe setup (`setup/setup.py`), per-feature `process_frame()` functions, pure orchestrator entry point
-- 🔔 **Audio Alarms** — Synthesized dual-frequency beep or custom `.wav` file via Pygame mixer
-- 🎛️ **Highly Configurable** — 40+ parameters in `config/config.py`; no code changes needed to tune thresholds
+- 🔔 **Audio Alarms** — Synthesized dual-frequency beep or custom `.wav` file via Pygame mixer with global cooldown to prevent overlapping sounds
+- 🎛️ **Highly Configurable** — 50+ parameters in `config/config.py`; no code changes needed to tune thresholds
 - 📋 **Event Logging** — CSV-format drowsiness and drink-event logs with optional frame snapshots
 - 🐞 **Debug Mode** — Live facial mesh overlay, EAR values, and frame counter on-screen
 - ⌨️ **Keyboard Shortcuts** — Toggle debug mode, reset counters, re-calibrate head pose at runtime
@@ -86,8 +64,9 @@ pip install -r requirements.txt
 |---|---|---|
 | **OpenCV** | ≥ 4.5.0 | Camera capture, frame processing, drawing overlays |
 | **MediaPipe** | ≥ 0.8.10 | 468-point FaceMesh, Iris landmarks, Hand tracking |
-| **Ultralytics YOLOv8** | ≥ 8.0.0 | Real-time drink object detection (YOLOv8n backbone) |
+| **Ultralytics YOLOv8** | ≥ 8.0.0 | Real-time drink object & phone detection (YOLOv8n backbone) |
 | **NumPy** | ≥ 1.20.0 | Vector math, EAR calculations, angle geometry |
+| **PyTorch** | ≥ 2.0.0 | YOLOv8 model backend |
 
 ### Dashboard & Utilities
 
@@ -102,23 +81,23 @@ pip install -r requirements.txt
 
 ### Language & Environment
 
-- **Python 3.8+** — Core runtime
+- **Python 3.8+** — Core runtime (3.10+ recommended)
 - **Virtual Environment** (`venv`) — Dependency isolation
 
 ---
 
 ## 🧠 System Architecture & Logic
 
-The system follows a **DRY modular architecture** where a single shared MediaPipe setup feeds all four feature detectors through one orchestrator.
+The system follows a **DRY modular architecture** where a single shared MediaPipe setup feeds all five feature detectors through one orchestrator.
 
 #### Module & Import Structure
 
 ```mermaid
 flowchart TD
-    S["⚙️ setup/setup.py\nShared FaceMesh · Hands · mp_drawing"]
+    S["setup/setup.py\nShared FaceMesh + Hands + mp_drawing"]
 
-    S -->|imported by| M["📄 main.py\nDriverSafetyPipeline\nCLI Orchestrator"]
-    S -->|imported by| A["📄 app.py\nStreamlit Dashboard"]
+    S -->|imported by| M["main.py\nDriverSafetyPipeline\nCLI Orchestrator"]
+    S -->|imported by| A["app.py\nStreamlit Dashboard"]
     S -->|imported by| F1["features/sleep_detector.py"]
     S -->|imported by| F2["features/distraction_detection.py"]
     S -->|imported by| F3["features/yawning_detection.py"]
@@ -129,6 +108,7 @@ flowchart TD
     M -->|imports process_frame| F2
     M -->|imports process_frame| F3
     M -->|imports process_frame| F4
+    M -->|imports process_frame| F5["features/phone_tracking/\nphone_tracker.py"]
 
     style S fill:#1e3a5f,color:#90caf9,stroke:#42a5f5
     style M fill:#1b3a2d,color:#a5d6a7,stroke:#66bb6a
@@ -137,27 +117,24 @@ flowchart TD
     style F2 fill:#2a2a1e,color:#fff59d,stroke:#ffee58
     style F3 fill:#2a2a1e,color:#fff59d,stroke:#ffee58
     style F4 fill:#2a2a1e,color:#fff59d,stroke:#ffee58
+    style F5 fill:#2a2a1e,color:#fff59d,stroke:#ffee58
 ```
 
 #### Per-Frame Detection Pipeline
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 
 ```mermaid
 flowchart LR
-    CAM["📷 Camera\nframe"]
-    MP["🧠 MediaPipe\nOne shared pass\nFaceMesh + Hands"]
+    CAM["Camera\nframe"]
+    MP["MediaPipe\nOne shared pass\nFaceMesh + Hands"]
     LMS["face_landmarks\nhand_results"]
 
-<<<<<<< HEAD
-### 1. Clone or Download the Repository
+    SLEEP["sleep_detector\nprocess_frame\nEAR - Drowsiness"]
+    DIST["distraction_detection\nprocess_frame\nGaze + Head Pose"]
+    YAWN["yawning_detection\nprocess_frame\nMAR + Score"]
+    DRINK["drink_and_drive\nprocess_frame\nYOLO + State Machine"]
+    PHONE["phone_tracker\nprocess_frame\nYOLO Phone Detection"]
 
-=======
-    SLEEP["💤 sleep_detector\nprocess_frame\nEAR → Drowsiness"]
-    DIST["👁️ distraction_detection\nprocess_frame\nGaze + Head Pose"]
-    YAWN["😮 yawning_detection\nprocess_frame\nMAR + Score"]
-    DRINK["🍺 drink_and_drive\nprocess_frame\nYOLO + State Machine"]
-
-    ALARM["🔔 Alarm\n+ Overlay\n+ Log"]
+    ALARM["Alarm\n+ Overlay\n+ Log"]
 
     CAM --> MP
     MP --> LMS
@@ -165,11 +142,13 @@ flowchart LR
     LMS --> DIST
     LMS --> YAWN
     LMS --> DRINK
+    CAM --> PHONE
 
     SLEEP -->|drowsy| ALARM
     DIST -->|distracted| ALARM
     YAWN -->|yawning| ALARM
     DRINK -->|ALERT state| ALARM
+    PHONE -->|confirmed use| ALARM
 
     style CAM fill:#263238,color:#eceff1,stroke:#546e7a
     style MP fill:#1e3a5f,color:#90caf9,stroke:#42a5f5
@@ -178,6 +157,7 @@ flowchart LR
     style DIST fill:#1b3a2d,color:#a5d6a7,stroke:#66bb6a
     style YAWN fill:#1b3a2d,color:#a5d6a7,stroke:#66bb6a
     style DRINK fill:#1b3a2d,color:#a5d6a7,stroke:#66bb6a
+    style PHONE fill:#1b3a2d,color:#a5d6a7,stroke:#66bb6a
     style ALARM fill:#4a1010,color:#ef9a9a,stroke:#e53935
 ```
 
@@ -220,9 +200,22 @@ Yawn is confirmed when `score ≥ 2.0`. Cooldown timer prevents duplicate counti
 
 #### 5. Drink-Drive Signal Fusion
 ```
-risk_score = (drink_conf × 1.0) + (hand_proximity × 1.0) + (head_distraction × 0.5)
+risk = 0.0
+if head_distracted:            risk += 0.7    # Preparatory signal
+if hand_near_mouth:            risk += 0.6    # Primary drinking indicator
+  if hand_very_close (<0.3):   risk += 0.2    # Bonus for very close
+if drink_object_detected:      risk += 0.5    # Independent confirmatory signal
+  if head_distracted:          risk += 0.3    # Bonus: head + object
 ```
-State machine transitions require the risk score to exceed a threshold **for N consecutive frames**, preventing single-frame noise from triggering alerts.
+State machine transitions require risk score to exceed a threshold **for N consecutive frames** with **3-frame grace tolerance** for noisy hand tracking, preventing single-frame noise from triggering or resetting alerts. Alarm fires when risk exceeds 1.5 or when DRINKING state is confirmed.
+
+#### 6. Phone Use Detection
+```
+State: IDLE → POSSIBLE_PHONE_USE (5 frames) → CONFIRMED_PHONE_USE → ALERT (10 frames)
+```
+- YOLOv8 model (`phone_brain.pt`) detects phone objects at >50% confidence
+- Alarm fires at `CONFIRMED_PHONE_USE` and re-triggers at `ALERT` escalation
+- Falls back to IDLE if phone disappears at any stage
 
 ---
 
@@ -240,18 +233,12 @@ State machine transitions require the risk score to exceed a threshold **for N c
 ### Installation
 
 **1. Clone the repository**
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 ```bash
-git clone https://github.com/nikes303/Driver_Drowsiness_Detector.git
+git clone https://github.com/icemberg/Driver_Drowsiness_and_Distraction_Detector.git
 cd Driver_Drowsiness_Detector
 ```
 
-<<<<<<< HEAD
-### 2. Create a Virtual Environment (Recommended)
-
-=======
 **2. Create and activate a virtual environment**
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 ```bash
 # Windows
 python -m venv drowsy_env
@@ -262,47 +249,16 @@ python -m venv drowsy_env
 source drowsy_env/bin/activate
 ```
 
-<<<<<<< HEAD
-### 3. Install Dependencies
-
-=======
 **3. Install dependencies**
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 ```bash
 pip install -r requirements.txt
 ```
 
-<<<<<<< HEAD
-### 4. Verify Installation
-
-Run the installation test to ensure all dependencies are properly installed:
-
-=======
 **4. Verify installation**
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 ```bash
 python test_installation.py
 ```
 
-<<<<<<< HEAD
-## Usage
-
-### Basic Usage
-
-Start the drowsiness detection system with default settings:
-
-```bash
-python sleep_detector.py
-```
-
-Start the distraction detection system :
-
-```bash
-python distraction_detector.py
-```
-
-### Advanced Options
-=======
 Expected output:
 ```
 ✔ Camera test passed
@@ -334,26 +290,35 @@ FRAME_HEIGHT  = 480
 
 # ── Distraction Detection ────────────────────────────────────────────────────
 GAZE_CENTER_MIN           = 0.35   # gaze ratio band; outside = looking away
-GAZE_CENTER_MAX           = 0.65
-HEAD_YAW_LIMIT            = 15     # degrees left/right (tightened)
-HEAD_PITCH_LIMIT          = 6      # degrees up/down (tightened)
+GAZE_CENTER_MAX           = 0.60
+HEAD_YAW_LIMIT            = 20     # degrees left/right
+HEAD_PITCH_LIMIT          = 15     # degrees up/down
 HEAD_ROLL_LIMIT           = 12     # degrees sideways tilt
 DISTRACTION_CONSEC_FRAMES = 10     # frames before distraction warning (~0.33 s)
 
 # ── Yawning Detection ───────────────────────────────────────────────────────
-MAR_THRESHOLD             = 0.6    # mouth aspect ratio threshold
-EAR_THRESHOLD             = 0.21   # eye closure threshold for yawn scoring
-MIN_YAWN_DURATION         = 1.5    # seconds mouth must stay open
-YAWN_COOLDOWN             = 3.0    # seconds between counted yawns
+MAR_THRESHOLD             = 0.5    # mouth aspect ratio threshold
+EAR_THRESHOLD             = 0.23   # eye closure threshold for yawn scoring
+MIN_YAWN_DURATION         = 1.2    # seconds mouth must stay open
+YAWN_COOLDOWN             = 2.0    # seconds between counted yawns
 
 # ── Alerts ───────────────────────────────────────────────────────────────────
 ALARM_SOUND  = "alarm.wav"      # path to WAV file, or None for generated beep
 ALARM_VOLUME = 0.9              # 0.0 – 1.0
 
 # ── Drink Detection ──────────────────────────────────────────────────────────
-DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE    = 0.4
+DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE     = 0.4
 DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED = 0.9
 DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT    = 1.3
+DRINK_RISK_FALLBACK_THRESHOLD              = 0.3
+DRINK_FRAMES_POSSIBLE_TO_CONFIRMED         = 5    # ~0.17 s @ 30 fps
+DRINK_FRAMES_CONFIRMED_TO_ALERT            = 8    # ~0.27 s @ 30 fps
+
+# ── Phone Detection ──────────────────────────────────────────────────────────
+ENABLE_PHONE_DETECTION     = True
+PHONE_FRAMES_IDLE_TO_POSSIBLE  = 5   # ~0.17 seconds to trigger warning
+PHONE_FRAMES_POSSIBLE_TO_ALERT = 10  # ~0.33 seconds to trigger alarm
+PHONE_LOCKOUT_DURATION         = 5.0 # seconds to stay in ALERT mode
 ```
 
 ---
@@ -362,8 +327,7 @@ DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT    = 1.3
 
 ### 🖥️ Unified Dashboard (Recommended)
 
-Run **all four detectors simultaneously** on a single camera feed:
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
+Run **all five detectors simultaneously** on a single camera feed:
 
 ```bash
 # CLI mode (OpenCV window)
@@ -383,38 +347,6 @@ streamlit run app.py
 
 ### Individual Feature Modules (Standalone)
 
-<<<<<<< HEAD
-### Eye Detection Parameters
-
-- `EYE_AR_THRESHOLD`: Eye Aspect Ratio threshold (default: 0.22)
-  - Lower values = More sensitive (detects slightly closed eyes)
-  - Higher values = Less sensitive (only detects fully closed eyes)
-- `EYE_AR_CONSEC_FRAMES`: Consecutive frames of closed eyes to trigger alarm (default: 25)
-  - At 30 FPS, this equals ~0.83 seconds
-
-### Hardware Settings
-
-- `CAMERA_INDEX`: Camera device index (0 = default webcam)
-- `FRAME_WIDTH`: Video frame width (default: 640)
-- `FRAME_HEIGHT`: Video frame height (default: 480)
-
-### Alert Settings
-
-- `ALARM_SOUND`: Path to custom alarm sound file (WAV format)
-- `ALARM_VOLUME`: Alert volume level (0.0 = silent, 1.0 = maximum, default: 0.9)
-
-### UI Settings
-
-- `SHOW_EAR_VALUE`: Display EAR value on screen (default: True)
-- `SHOW_LANDMARKS`: Show facial landmarks visualization (default: True)
-- `TEXT_COLOR`: Color for text overlays (BGR format)
-- `FRAME_COLOR`: Color for face frame (BGR format)
-
-### Logging Settings
-
-- `ENABLE_LOGGING`: Enable event logging (default: False)
-- `LOG_FILE`: Path to log file (default: "sleep_detection_log.txt")
-=======
 Each feature module can still be run independently:
 
 ```bash
@@ -431,7 +363,6 @@ python features/yawning_detection.py
 # Drink-While-Driving Detection
 python features/drink_and_drive/drink_and_drive_detection.py
 ```
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 
 ### Training a Custom Drink Detector
 
@@ -461,207 +392,12 @@ python features/drink_and_drive/drink_detector_trainer.py --mode evaluate --mode
 
 #### Standalone modules
 
-<<<<<<< HEAD
-| Key | Action                                         |
-| --- | ---------------------------------------------- |
-| `q` | Quit the application                           |
-| `d` | Toggle debug mode (show/hide facial landmarks) |
-| `r` | Reset counters and alarms                      |
-
-## Project Structure
-
-```
-Driver_Drowsiness_Detector/
-├── sleep_detector.py           # Main drowsiness detection module
-├── distraction_detection.py    # Head position and gaze tracking
-├── utils.py                    # Utility functions and helpers
-├── config.py                   # Configuration parameters
-├── test_installation.py        # Installation verification script
-├── requirements.txt            # Python dependencies
-└── README.md                   # This file
-```
-
-### File Descriptions
-
-**sleep_detector.py**
-
-- Main entry point for the drowsiness detection system
-- Initializes MediaPipe face mesh and camera capture
-- Implements Eye Aspect Ratio (EAR) calculation
-- Manages alarm triggering logic and frame processing loop
-
-**distraction_detection.py**
-
-- Head rotation metrics and pose estimation
-- Gaze direction detection
-- Determines if driver is looking away from road
-- Computes yaw, pitch, and roll angles
-
-**utils.py**
-
-- Utility functions for alarm playback
-- Event logging functionality
-- Frame resizing and preprocessing
-- Eye closure detection helpers
-- Audio generation for alarm beeps
-
-**config.py**
-
-- Centralized configuration for all system parameters
-- Well-documented settings with explanations
-- Easy adjustment without code modification
-
-## How It Works
-
-### 1. Face Detection
-
-The system uses MediaPipe's FaceMesh to detect 468 facial landmarks in real-time with high accuracy.
-
-### 2. Eye Landmark Extraction
-
-Specific landmarks are extracted for:
-
-- **Left Eye**: 16 key points defining eye contour
-- **Right Eye**: 16 key points defining eye contour
-
-### 3. Eye Aspect Ratio (EAR) Calculation
-
-EAR = (Distance between upper and lower eyelid) / (Width of eye)
-
-- High EAR (>0.22) = Eyes Open
-- Low EAR (<0.22) = Eyes Closed
-
-### 4. Drowsiness Detection Logic
-
-- If EAR < threshold for consecutive frames → Drowsiness detected
-- Number of consecutive frames is configurable
-- Audio alarm triggers when drowsiness is detected
-
-### 5. Distraction Detection
-
-- Monitors head rotation (yaw, pitch, roll angles)
-- Tracks iris position within eye bounds
-- Flags when driver looks away from forward direction
-
-## Tips for Best Performance
-
-1. **Lighting**: Ensure adequate lighting on the driver's face for optimal detection
-2. **Camera Position**: Mount camera at eye level, 12-18 inches from face
-3. **Threshold Tuning**: Start with default values and adjust based on testing
-4. **Eye Shape**: Sensitivity varies by eye shape; test individual thresholds
-5. **Framerate**: Better performance with 30+ FPS; adjust resolution if needed
-6. **Environmental**: Avoid direct sunlight and reflections on the camera lens
-
-## Troubleshooting
-
-### Camera Not Found
-
-- Verify the camera index using `--camera` parameter (try 0, 1, 2, etc.)
-- Check camera permissions in system settings
-- Restart the application
-
-### False Alarms (Too Sensitive)
-
-- Increase `EYE_AR_THRESHOLD` in config.py (e.g., 0.24, 0.25)
-- Increase `EYE_AR_CONSEC_FRAMES` value
-- Ensure bright lighting on the face
-
-### Missing Alarms (Too Insensitive)
-
-- Decrease `EYE_AR_THRESHOLD` in config.py (e.g., 0.20, 0.19)
-- Reduce `EYE_AR_CONSEC_FRAMES` value
-- Check lighting conditions
-
-### Mediapipe error fix
-
-```
-pip uninstall mediapipe
-pip install mediapipe==0.10.9
-```
-
-### Camera Freezing
-
-- Reduce `FRAME_WIDTH` and `FRAME_HEIGHT` in config.py
-- Close other applications using the camera
-- Use `--fps-skip` if available
-
-### No Audio Output
-
-- Check volume settings on your system
-- Verify pygame mixer initialization
-- Try `--silent` mode to test without audio
-
-## Dependencies Details
-
-### MediaPipe
-
-- Provides 468 high-accuracy facial landmarks
-- Real-time face detection on CPU
-- Robust to various head poses and lighting
-
-### OpenCV
-
-- Video capture and frame processing
-- Image transformations and visualization
-- Real-time video rendering
-
-### NumPy
-
-- Numerical computations for EAR calculations
-- Distance and angle computations
-- Array processing
-
-### Pygame
-
-- Audio playback for alarm sounds
-- Sound generation for beep tones
-
-## Performance Metrics
-
-- **Detection Latency**: <100ms (varies by hardware)
-- **False Positive Rate**: <5% (with proper calibration)
-- **False Negative Rate**: <3% (with proper calibration)
-- **CPU Usage**: 15-30% on modern systems
-- **Memory Usage**: 200-400MB
-
-## Future Enhancements
-
-- Support for multiple driver detection
-- Machine learning model for fatigue prediction
-- Cloud-based alert system
-- Mobile application integration
-- Driver profile customization
-- Advanced gaze tracking
-
-## Contributing
-
-Contributions are welcome! Please feel free to:
-
-- Report bugs and issues
-- Suggest improvements
-- Submit pull requests with enhancements
-- Improve documentation
-
-## Support
-
-For issues, questions, or feedback:
-
-1. Check the Troubleshooting section
-2. Review configuration parameters
-3. Run test_installation.py to verify setup
-4. Check system requirements
-
-## Disclaimer
-
-This system is intended as a safety aid and should not be relied upon as the sole method for preventing drowsy driving. Always ensure proper rest before driving and follow all traffic safety regulations.
-=======
 | Key | Action |
 |-----|--------|
 | `q` | Quit the application |
 | `d` | Toggle debug mode (show/hide face mesh) |
 | `r` | Reset counters and alarms |
 | `c` | Re-calibrate neutral head pose *(distraction module)* |
->>>>>>> 2fc91912102771d4f20ac729f380e3c140484d52
 
 ---
 
@@ -678,7 +414,7 @@ Driver_Drowsiness_Detector/
 │   └── setup.py                            # Single FaceMesh + Hands instance for all modules
 │
 ├── 📁 config/
-│   └── config.py                           # Centralised configuration (40+ params)
+│   └── config.py                           # Centralised configuration (50+ params)
 │
 ├── 📁 utils/
 │   └── utils.py                            # Shared utilities: alarm, EAR/MAR, logging, risk scoring
@@ -687,14 +423,18 @@ Driver_Drowsiness_Detector/
 │   ├── sleep_detector.py                   # Drowsiness detection (EAR + smoothing + alarm)
 │   ├── distraction_detection.py            # Gaze tracking + head pose + off-centre detection
 │   ├── yawning_detection.py                # MAR + eye overlap + hand proximity yawn scoring
-│   └── 📁 drink_and_drive/
-│       ├── drink_and_drive_detection.py     # 4-state machine drink-drive detector
-│       ├── drink_detector_trainer.py        # YOLOv8 training pipeline
-│       ├── yolov8_drink_detector.py         # YOLOv8 detector class (clean interface)
-│       └── image_downloader.py             # Automated Bing dataset scraper (icrawler)
+│   ├── 📁 drink_and_drive/
+│   │   ├── drink_and_drive_detection.py    # 4-state machine drink-drive detector
+│   │   ├── drink_detector_trainer.py       # YOLOv8 training pipeline
+│   │   ├── yolov8_drink_detector.py        # YOLOv8 detector class (clean interface)
+│   │   └── image_downloader.py            # Automated Bing dataset scraper (icrawler)
+│   └── 📁 phone_tracking/
+│       ├── phone_tracker.py               # 4-state machine phone use detector (YOLOv8)
+│       └── guide.md                       # Phone detection setup guide
 │
 ├── 📁 models/                              # Trained model weights (git-ignored)
-│   └── yolov8n_drink.pt
+│   ├── yolov8n_drink.pt                   # Drink object detector
+│   └── phone_brain.pt                     # Phone use detector (in features/phone_tracking/)
 │
 ├── 🧪 test_installation.py                # Dependency & camera verification
 ├── 📋 requirements.txt
@@ -723,9 +463,11 @@ Driver_Drowsiness_Detector/
 
 ### Optimization Techniques Used
 
-- **Shared MediaPipe instances** — One `FaceMesh` + one `Hands` instance processes each frame; results shared across all 4 detectors
+- **Shared MediaPipe instances** — One `FaceMesh` + one `Hands` instance processes each frame; results shared across all 5 detectors
 - **EAR temporal smoothing** — 5-frame rolling average; eliminates single-frame blink noise
 - **Consecutive-frame counters** — All alerts require N sustained frames; prevents flicker
+- **Grace-frame tolerance** — Drink detection tolerates up to 3 brief tracking dropouts without resetting state
+- **Global alarm cooldown** — Prevents overlapping beeps when multiple detectors trigger simultaneously
 - **YOLOv8 Nano backbone** — Smallest YOLO variant; maximises FPS on CPU
 - **Single face tracking** — `max_num_faces=1` in FaceMesh reduces compute
 - **Frame skipping fallback** — Graceful degradation if camera drops frames
@@ -753,8 +495,143 @@ Driver_Drowsiness_Detector/
 | **No audio output** | Check system volume; use Silent Mode to confirm visual-only works |
 | **Head pose always "DISTRACTED"** | Press `c` / click Recalibrate with face looking straight ahead |
 | **Streamlit video blinking** | Ensure you're using Streamlit ≥ 1.28; the app uses `while`-loop (not `st.rerun()`) |
-| **`use_container_width` warning** | Update Streamlit to latest version; app uses `width='stretch'` |
+| **Drink detection not working** | Check risk score in dashboard; ensure hand is near mouth with head tilt |
+| **Phone detection not loading** | Verify `features/phone_tracking/phone_brain.pt` model file exists |
+---
 
+## 🔍 How It Works
+
+### 1. Face Detection
+
+The system uses MediaPipe's FaceMesh to detect 468 facial landmarks in real-time with high accuracy. A single shared MediaPipe pass produces both face and hand landmarks, which are distributed to all five detector modules.
+
+### 2. Eye Landmark Extraction
+
+Specific landmarks are extracted for:
+
+- **Left Eye**: 16 key points defining eye contour
+- **Right Eye**: 16 key points defining eye contour
+
+### 3. Eye Aspect Ratio (EAR) Calculation
+
+```
+EAR = (Distance between upper and lower eyelid) / (Width of eye)
+```
+
+- High EAR (>0.22) = Eyes Open
+- Low EAR (<0.22) = Eyes Closed
+- A 5-frame rolling average smooths out single-frame blink noise
+
+### 4. Drowsiness Detection Logic
+
+- If EAR < threshold for `EYE_AR_CONSEC_FRAMES` consecutive frames → Drowsiness detected
+- Hysteresis band (`threshold + 0.02`) prevents rapid toggling
+- Audio alarm triggers once per drowsiness episode; resets when eyes reopen
+
+### 5. Distraction Detection
+
+- Monitors head rotation (yaw, pitch, roll angles) relative to calibrated neutral
+- Tracks iris position within eye corners using MediaPipe Iris landmarks
+- Detects off-centre face position using nose landmark
+- Any ONE signal (gaze, head turn, off-centre) independently triggers distraction
+- Requires `DISTRACTION_CONSEC_FRAMES` sustained frames before raising alarm
+
+### 6. Yawning Detection
+
+- Mouth Aspect Ratio (MAR) detects mouth opening
+- Score combines mouth duration, eye closure overlap, and hand-near-mouth proximity
+- Yawn confirmed when score ≥ 2.0 with cooldown to prevent duplicate counting
+
+### 7. Drink-While-Driving Detection
+
+- **Signal fusion**: Hand-to-mouth distance + YOLOv8 object detection + head pose
+- **4-state machine**: IDLE → POSSIBLE_DRINKING → DRINKING → ALERT
+- **Grace-frame tolerance**: Tolerates up to 3 noisy hand-tracking dropouts without resetting
+- **Risk-based alarm**: Plays alarm when risk score exceeds 1.5
+
+### 8. Phone Use Detection
+
+- YOLOv8 model (`phone_brain.pt`) detects phone objects at >50% confidence
+- **4-state machine**: IDLE → POSSIBLE_PHONE_USE → CONFIRMED_PHONE_USE → ALERT
+- Alarm fires on confirmed phone use (5 consecutive frames) and re-triggers at ALERT (10 frames)
+- Falls back to IDLE with lockout timer (`PHONE_LOCKOUT_DURATION = 5s`)
+
+---
+
+## 📦 Dependencies Details
+
+### MediaPipe
+
+- Provides 468 high-accuracy facial landmarks + iris tracking
+- Real-time face detection on CPU with refine_landmarks enabled
+- Robust to various head poses and lighting conditions
+
+### OpenCV
+
+- Video capture and frame processing
+- Image transformations and visualization (BGR/RGB conversion)
+- Real-time video rendering and text overlay
+
+### NumPy
+
+- Numerical computations for EAR/MAR calculations
+- Vector cross-product geometry for head pose estimation
+- Distance and angle computations
+
+### Pygame
+
+- Audio playback for alarm sounds
+- Synthesized dual-frequency tone generation (880 Hz + 1320 Hz)
+- Global cooldown prevents overlapping alarm sounds
+
+### Ultralytics YOLOv8
+
+- YOLOv8 Nano backbone for real-time object detection
+- Custom-trained models for drink objects and phone detection
+- Built-in training pipeline with data augmentation
+
+### Streamlit
+
+- Real-time web dashboard with live camera feed
+- Interactive sidebar with detector toggles and settings
+- Metric cards with severity-based color coding
+- Alert history log with timestamps
+
+---
+
+## 🔮 Future Enhancements
+
+- Support for multiple driver detection
+- Machine learning model for fatigue prediction
+- Cloud-based alert system and remote monitoring
+- Mobile application integration
+- Driver profile customization with personalized thresholds
+- Advanced gaze tracking with 3D eye models
+- Integration with vehicle CAN bus for speed-aware alerts
+- Voice-based driver engagement detection
+
+---
+
+## 💬 Support
+
+For issues, questions, or feedback:
+
+1. Check the [Troubleshooting](#-troubleshooting) section above
+2. Review configuration parameters in `config/config.py`
+3. Run `python test_installation.py` to verify setup
+4. Check system requirements (Python 3.8+, webcam, 4GB+ RAM)
+5. Open an issue on [GitHub](https://github.com/icemberg/Driver_Drowsiness_and_Distraction_Detector/issues)
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to:
+
+- Report bugs and issues
+- Suggest improvements
+- Submit pull requests with enhancements
+- Improve documentation
 
 ---
 
@@ -776,7 +653,7 @@ MIT License — free to use, modify, and distribute with attribution.
 **nikes303** — Contributor
 - 🐙 GitHub: [@nikes303](https://github.com/nikes303)
 
-> Project Repository: [https://github.com/nikes303/Driver_Drowsiness_Detector](https://github.com/nikes303/Driver_Drowsiness_Detector)
+> Project Repository: [https://github.com/icemberg/Driver_Drowsiness_and_Distraction_Detector](https://github.com/icemberg/Driver_Drowsiness_and_Distraction_Detector)
 
 ---
 
