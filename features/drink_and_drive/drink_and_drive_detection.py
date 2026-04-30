@@ -134,6 +134,8 @@ def load_custom_drink_detector():
 # ============================================================
 _drink_state       = DrinkState.IDLE
 _drink_frame_ctr   = 0
+_drink_grace_ctr   = 0          # counts consecutive low-risk frames before fallback
+_DRINK_GRACE_FRAMES = 3         # tolerate up to 3 noisy low-risk frames
 _drink_events      = 0
 _drink_alert_until = 0.0
 _drink_alarm_on    = False
@@ -173,7 +175,7 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
     Returns:
         dict with keys: face, state, risk, events, hand_dist, drink_obj, head_dist
     """
-    global _drink_state, _drink_frame_ctr, _drink_events
+    global _drink_state, _drink_frame_ctr, _drink_grace_ctr, _drink_events
     global _drink_alert_until, _drink_alarm_on
 
     _ensure_drink_init()
@@ -221,22 +223,44 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
     risk = fuse_three_signals(hand_norm, drink_obj, head_dist,
                               DRINK_HAND_MOUTH_DISTANCE_THRESHOLD)
 
-    # State machine
+    # ── Play alarm when risk is high enough ──
+    if risk > 1.5 and not _drink_alarm_on and not silent:
+        _drink_alarm_on = True
+        play_alarm(ALARM_SOUND, ALARM_VOLUME)
+
+    # State machine (with grace-frame tolerance for noisy hand tracking)
     _drink_frame_ctr += 1
+
     if _drink_state == DrinkState.IDLE:
         if risk >= DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE:
             _drink_frame_ctr = 0
+            _drink_grace_ctr = 0
             _drink_state = DrinkState.POSSIBLE_DRINKING
+
     elif _drink_state == DrinkState.POSSIBLE_DRINKING:
         if risk >= DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED:
+            _drink_grace_ctr = 0                     # good frame — reset grace
             if _drink_frame_ctr >= DRINK_FRAMES_POSSIBLE_TO_CONFIRMED:
                 _drink_frame_ctr = 0
                 _drink_state = DrinkState.DRINKING
+                # ── Play alarm on confirmed drinking ──
+                if not _drink_alarm_on:
+                    _drink_alarm_on = True
+                    if not silent:
+                        play_alarm(ALARM_SOUND, ALARM_VOLUME)
         elif risk < DRINK_RISK_FALLBACK_THRESHOLD:
-            _drink_frame_ctr = 0
-            _drink_state = DrinkState.IDLE
+            _drink_grace_ctr += 1
+            if _drink_grace_ctr >= _DRINK_GRACE_FRAMES:
+                _drink_frame_ctr = 0
+                _drink_grace_ctr = 0
+                _drink_state = DrinkState.IDLE
+        else:
+            # Risk between fallback and confirmed — keep waiting, don't reset
+            _drink_grace_ctr = 0
+
     elif _drink_state == DrinkState.DRINKING:
         if risk >= DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT:
+            _drink_grace_ctr = 0
             if _drink_frame_ctr >= DRINK_FRAMES_CONFIRMED_TO_ALERT:
                 _drink_frame_ctr   = 0
                 _drink_state       = DrinkState.ALERT
@@ -250,11 +274,19 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
                     if not silent:
                         play_alarm(ALARM_SOUND, ALARM_VOLUME)
         elif risk < DRINK_RISK_FALLBACK_THRESHOLD:
-            _drink_frame_ctr = 0
-            _drink_state = DrinkState.IDLE
+            _drink_grace_ctr += 1
+            if _drink_grace_ctr >= _DRINK_GRACE_FRAMES:
+                _drink_frame_ctr = 0
+                _drink_grace_ctr = 0
+                _drink_state = DrinkState.IDLE
+        else:
+            # Risk between fallback and alert threshold — keep waiting
+            _drink_grace_ctr = 0
+
     elif _drink_state == DrinkState.ALERT:
         if now >= _drink_alert_until:
             _drink_frame_ctr = 0
+            _drink_grace_ctr = 0
             _drink_state = DrinkState.IDLE
             _drink_alarm_on = False
 
@@ -265,9 +297,9 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
 
 def reset_drink_state():
     """Reset module-level drink state."""
-    global _drink_state, _drink_frame_ctr, _drink_events
+    global _drink_state, _drink_frame_ctr, _drink_grace_ctr, _drink_events
     global _drink_alert_until, _drink_alarm_on
-    _drink_state = DrinkState.IDLE; _drink_frame_ctr = 0
+    _drink_state = DrinkState.IDLE; _drink_frame_ctr = 0; _drink_grace_ctr = 0
     _drink_events = 0; _drink_alert_until = 0.0; _drink_alarm_on = False
 
 

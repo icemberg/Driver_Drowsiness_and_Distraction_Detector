@@ -82,27 +82,32 @@ def process_frame(frame, w, h, now, silent=False):
             if _phone_frame_ctr >= 5: 
                 _phone_frame_ctr = 0
                 _phone_state = PhoneState.CONFIRMED_PHONE_USE
+                # ── Play alarm on confirmed phone use ──
+                if not _phone_alarm_on:
+                    _phone_alarm_on = True
+                    if not silent:
+                        play_alarm(config.ALARM_SOUND, config.ALARM_VOLUME)
         else:
             # Fallback to IDLE if phone goes away
             _phone_frame_ctr = 0
             _phone_state = PhoneState.IDLE
 
     elif _phone_state == PhoneState.CONFIRMED_PHONE_USE:
-        # Require 10 consecutive frames to trigger the alarm
-        if _phone_frame_ctr >= 10:
+        # Require 10 consecutive frames to escalate to ALERT
+        if phone_detected:
+            if _phone_frame_ctr >= 10:
                 _phone_frame_ctr = 0
                 _phone_state = PhoneState.ALERT
                 _phone_alert_until = now + config.PHONE_LOCKOUT_DURATION
                 _phone_events += 1
-
-                # Trigger the alarm
-                if not _phone_alarm_on:
-                    _phone_alarm_on = True
-                    if not silent:
-                        play_alarm(config.ALARM_SOUND, config.ALARM_VOLUME)
+                # Re-trigger alarm on escalation to ALERT
+                if not silent:
+                    play_alarm(config.ALARM_SOUND, config.ALARM_VOLUME)
         else:
+            # Phone disappeared — fall back to IDLE
             _phone_frame_ctr = 0
             _phone_state = PhoneState.IDLE
+            _phone_alarm_on = False
 
     elif _phone_state == PhoneState.ALERT:
         # Stay in Alert mode until the lockout timer expires
