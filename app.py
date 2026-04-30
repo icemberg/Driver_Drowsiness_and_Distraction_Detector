@@ -67,6 +67,7 @@ with st.sidebar:
     en_dist  = st.checkbox("👁️ Distraction Detection",  value=True)
     en_yawn  = st.checkbox("😮 Yawning Detection",       value=True)
     en_drink = st.checkbox("🍺 Drink & Drive Detection", value=True)
+    en_phone = st.checkbox("📱 Phone Detection",         value=True)
 
     st.markdown("---")
     st.subheader("⚙️ Settings")
@@ -100,6 +101,7 @@ if start_btn and not st.session_state.running:
     pl.enable_distraction = en_dist
     pl.enable_yawning     = en_yawn
     pl.enable_drink       = en_drink
+    pl.enable_phone       = en_phone
 
     cap = cv2.VideoCapture(int(cam_idx))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  config.FRAME_WIDTH)
@@ -162,6 +164,12 @@ def _render(results):
         lvl = {"IDLE":"ok","POSSIBLE_DRINKING":"warn","DRINKING":"warn","ALERT":"alert"}.get(state,"ok")
         html += _card("🍺 Drink & Drive", f"{state} {'🚨' if state=='ALERT' else ''}",
                        f"Risk: {dk.get('risk',0):.1f}/3.0 | Events: {dk.get('events',0)}", lvl)
+    ph = results.get("phone")
+    if ph is not None:
+        state = ph.get("state", "IDLE")
+        lvl = {"IDLE":"ok", "POSSIBLE_PHONE_USE":"warn", "CONFIRMED_PHONE_USE":"warn", "ALERT":"alert"}.get(state,"ok")
+        html += _card("📱 Phone Detection", f"{state} {'🚨' if state=='ALERT' else ''}",
+                       f"Risk: {ph.get('risk',0):.1f}/3.0 | Events: {ph.get('events',0)}", lvl)
     return html
 
 
@@ -171,6 +179,7 @@ def _alerts(results):
     if (d := results.get("distraction")) and d.get("distracted"): out.append("DISTRACTED")
     if (y := results.get("yawning"))     and y.get("yawning"):    out.append("YAWNING")
     if (k := results.get("drink"))       and k.get("state") == "ALERT": out.append("DRINK & DRIVE 🚨")
+    if (p := results.get("phone"))       and p.get("state") == "ALERT": out.append("PHONE USE 📱")
     return out
 
 
@@ -184,6 +193,7 @@ if st.session_state.running:
         pl.enable_distraction = en_dist
         pl.enable_yawning     = en_yawn
         pl.enable_drink       = en_drink
+        pl.enable_phone       = en_phone
         pl.silent             = silent
 
         # Continuous while-loop: updates placeholders in-place without full page rerun.

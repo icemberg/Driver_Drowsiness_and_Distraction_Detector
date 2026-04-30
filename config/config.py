@@ -237,4 +237,17 @@ DRINK_EVENT_SNAPSHOT_COUNT = 6  # Number of frames to capture around alert
 ENABLE_DRINK_DETECTION = True
 ENABLE_DRINK_SNAPSHOTS = True
 ENABLE_DRINK_CSV_LOGGING = True
+############################################
+# PHONE DETECTION PARAMETERS               #
+############################################
+
+# Enable/disable the phone detection feature
+ENABLE_PHONE_DETECTION = True
+
+# Frame consistency requirements (at 30fps)
+PHONE_FRAMES_IDLE_TO_POSSIBLE = 5    # ~0.17 seconds to trigger warning
+PHONE_FRAMES_POSSIBLE_TO_ALERT = 10  # ~0.33 seconds to trigger alarm
+
+# Lockout and Cooldown
+PHONE_LOCKOUT_DURATION = 5.0         # Seconds to stay in ALERT mode
 
