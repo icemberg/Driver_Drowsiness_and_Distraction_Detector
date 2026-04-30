@@ -53,14 +53,14 @@ yolov8_drink_detector.py         # YOLOv8 detector class (400+ lines)
 
 ### Modified Files
 
-**1. config.py**
+**1. config/config.py**
 ```python
 # OLD:
 DRINK_OBJECT_DETECTOR_MODEL = "efficientdet_lite0"
 
 # NEW:
 DRINK_OBJECT_DETECTOR_MODEL = "yolov8n"
-DRINK_DETECTOR_MODEL_PATH = "drink_detector_yolov8n.pt"
+DRINK_DETECTOR_MODEL_PATH = "./models/yolov8n_drink.pt"
 ```
 
 **2. requirements.txt**
@@ -87,12 +87,12 @@ ultralytics>=8.0.0  # YOLOv8 framework
 
 **5. README.md**
 ```markdown
-# Added sections:
-- Drink & Drive Detection (new feature documentation)
-- YOLOv8 Architecture explanation
-- Training workflow with step-by-step instructions
-- Configuration parameters for drink detection
-- Updated file descriptions
+# Added/Updated sections:
+- Drink & Drive Detection (YOLOv8n architecture)
+- Signal fusion pipeline diagram
+- Training workflow (modular paths under features/drink_and_drive/)
+- Configuration parameters for drink detection (config/config.py)
+- Updated file structure (config/, utils/, models/, features/)
 - New dependencies (ultralytics, icrawler)
 ```
 
@@ -142,29 +142,31 @@ distraction_score = estimate_head_pose(...)
 risk_score = 1.0*detection_score + 1.0*hand_score + 0.5*distraction_score
 ```
 
-### 2. State Machine (unchanged logic)
+### 2. State Machine (updated thresholds)
 ```python
-# State transitions still use same thresholds:
-# IDLE -> POSSIBLE_DRINKING: risk >= 1.5 for 5 frames
-# POSSIBLE_DRINKING -> DRINKING: risk >= 2.0 for 8 frames  
-# DRINKING -> ALERT: risk >= 2.5 for 15 frames
+# State transitions tuned for behavior detection:
+# IDLE -> POSSIBLE_DRINKING: risk >= 0.4 for 5 frames
+# POSSIBLE_DRINKING -> DRINKING: risk >= 0.9 for 10 frames
+# DRINKING -> ALERT: risk >= 1.3 for 12 frames
 ```
 
 ### 3. Event Logging (unchanged format)
 ```csv
 timestamp,state,risk_score,detection_class,confidence,hand_distance
-2024-01-15 14:23:45.123,ALERT,2.75,cup,0.92,0.08
+2024-01-15 14:23:45.123,ALERT,1.85,cup,0.92,0.08
 ```
+
+> **Log path:** `features/drink_and_drive/drink_detection_logs/drink_and_drive_events.csv`
 
 ## Training Workflow
 
 ### Step 1: Collect/Download Dataset
 ```bash
 # Option A: Collect from webcam
-python drink_detector_trainer.py --mode collect_dataset
+python features/drink_and_drive/drink_detector_trainer.py --mode collect_dataset
 
 # Option B: Download from web (1000+ images)
-python drink_detector_trainer.py --mode download_web
+python features/drink_and_drive/drink_detector_trainer.py --mode download_web
 ```
 
 ### Step 2: Prepare YOLO Format
@@ -179,18 +181,18 @@ create_dataset_yaml("drink_dataset", "dataset.yaml")
 
 ### Step 3: Train Model
 ```bash
-python drink_detector_trainer.py --mode train
-# Outputs: drink_detector_yolov8n.pt (trained model)
-# Metrics stored in runs/detect/train*/
+python features/drink_and_drive/drink_detector_trainer.py --mode train
+# Outputs: models/yolov8n_drink.pt (trained model)
+# Metrics stored in features/drink_and_drive/runs/detect/train*/
 ```
 
 ### Step 4: Test & Deploy
 ```bash
 # Real-time camera test
-python drink_detector_trainer.py --mode test_camera
+python features/drink_and_drive/drink_detector_trainer.py --mode test_camera --model_path ./models/yolov8n_drink.pt
 
 # Or use in main pipeline
-python drink_and_drive_detection.py
+python features/drink_and_drive/drink_and_drive_detection.py
 ```
 
 ## Performance Metrics
@@ -236,13 +238,14 @@ icrawler>=0.10.0      # Web scraping for data collection
 ## Migration Checklist
 
 - [x] Create YOLOv8DrinkDetector class
-- [x] Update config.py with YOLOv8 parameters
+- [x] Update config/config.py with YOLOv8 parameters and tuned thresholds
 - [x] Update requirements.txt with ultralytics
 - [x] Replace train mode logic in drink_detector_trainer.py
 - [x] Replace test_camera mode logic
 - [x] Update drink_and_drive_detection.py detector loading
 - [x] Add dataset.yaml helper function
-- [x] Update README.md with training instructions
+- [x] Restructure project into config/, utils/, models/, features/ modules
+- [x] Update README.md with training instructions and modular structure
 - [x] Validate all syntax (python -m py_compile)
 - [x] Create migration documentation
 
@@ -266,11 +269,11 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 ### Dataset Issues
 ```bash
 # Verify YOLO format:
-ls drink_dataset/train/images  # Should have images
-ls drink_dataset/train/labels  # Should have .txt files
+ls features/drink_and_drive/drink_dataset/train/images  # Should have images
+ls features/drink_and_drive/drink_dataset/train/labels  # Should have .txt files
 
 # Check dataset.yaml exists
-cat dataset.yaml
+cat features/drink_and_drive/dataset.yaml
 ```
 
 ### Model Not Training
@@ -290,7 +293,9 @@ python -c "import ultralytics; ultralytics.predict(source='0')"
 - **COCO Dataset**: https://cocodataset.org/
 
 ---
-**Migration Date**: January 2024  
-**Status**: ✅ Complete and tested  
-**Performance Gain**: 3x faster inference (100ms → 50ms)  
-**Accuracy Improvement**: +10-15% (Random Forest → YOLOv8n)
+**Migration Date**: January 2024 → Updated April 2026 
+**Status**: ✅ Complete and tested 
+**Performance Gain**: 3x faster inference (100ms → 50ms) 
+**Accuracy Improvement**: +10-15% (Random Forest → YOLOv8n) 
+**Model Path**: `models/yolov8n_drink.pt` 
+**Risk Thresholds**: 0.4 / 0.9 / 1.3 (tuned for real driving behavior)

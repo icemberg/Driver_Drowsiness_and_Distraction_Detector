@@ -28,7 +28,7 @@ st.set_page_config(
 # ─── Styles ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-.block-container { padding-top: 1rem; }
+.block-container { padding-top: 2rem; }
 .metric-card {
     background: #1e2130; border-radius: 10px;
     padding: 14px 18px; margin: 5px 0;

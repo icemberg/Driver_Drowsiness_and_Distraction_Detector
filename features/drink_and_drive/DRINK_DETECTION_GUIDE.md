@@ -4,8 +4,8 @@
 
 This comprehensive drink and drive detection system integrates multiple advanced features:
 
-1. **MediaPipe Object Detector** - Detects drink containers (cups, bottles, mugs, cans, glasses)
-2. **Custom Model Training** - Train on 100+ samples per drink class
+1. **YOLOv8n Object Detector** - Detects drink containers using a fine-tuned YOLOv8 Nano model
+2. **Custom Model Training** - Train on 1000+ images per class via web download or webcam
 3. **Tuned State Machine** - Optimized thresholds based on real driving scenarios
 4. **Event Logging** - CSV logging with frame timestamps
 5. **Frame Snapshots** - Automatic capture of frames during ALERT events
@@ -25,8 +25,10 @@ Required packages:
 - `mediapipe` - Face detection, hand tracking
 - `numpy` - Numerical computations
 - `pygame` - Audio playback for alarms
-- `scikit-learn` - Machine learning for custom drink detector
+- `ultralytics` - YOLOv8 object detection framework
+- `scikit-learn` - Dataset utilities and evaluation metrics
 - `Pillow` - Image handling
+- `icrawler` - Automated dataset collection from Bing
 
 ### 2. Verify Installation
 
@@ -47,14 +49,14 @@ python drink_and_drive_detection.py
 **Features enabled by default:**
 - ✅ Hand-to-mouth proximity detection
 - ✅ Head pose distraction detection
-- ❌ Custom drink object detection (needs training first)
+- ✅ YOLOv8n drink object detection (uses `models/yolov8n_drink.pt`)
 - ✅ Event logging to CSV
 - ✅ Frame snapshots on alerts
 
 **Controls:**
 - Press **ESC** to exit
 - Watch the console for state transitions and alerts
-- Check `drink_detection_logs/` for event logs and snapshots
+- Check `features/drink_and_drive/drink_detection_logs/` for event logs and snapshots
 
 ---
 
@@ -62,9 +64,9 @@ python drink_and_drive_detection.py
 
 ### Overview
 
-The custom drink detector uses Random Forest classification trained on color and edge features extracted from images.
+The custom drink detector uses **YOLOv8n** (YOLOv8 Nano) trained end-to-end on drink images. A pretrained model is included at `models/yolov8n_drink.pt`. You can fine-tune it on your own dataset.
 
-**Two methods available:**
+**Two dataset collection methods available:**
 1. **Webcam Collection** - Simple but limited (~100 images per class manually)
 2. **Web Scraping** - Automatic download of 1000+ diverse images per class (RECOMMENDED)
 
@@ -138,8 +140,10 @@ All download progress is saved to `image_downloader.log` for debugging.
 Once downloading and cleaning completes:
 
 ```bash
-python drink_detector_trainer.py --mode train --dataset_path ./drink_dataset
+python drink_detector_trainer.py --mode train --dataset_path ./features/drink_and_drive/drink_dataset
 ```
+
+**Output:** `models/yolov8n_drink.pt` — the trained YOLOv8n model.
 
 ---
 
@@ -177,28 +181,25 @@ python drink_detector_trainer.py --mode collect_dataset --dataset_path ./drink_d
 3. Target: 100+ samples per class (10 classes = 1000+ total images)
 ```
 
-#### Step 2: Train the Model (Method 1 Only)
-
-Train a Random Forest classifier on the collected dataset:
+#### Step 2: Train the YOLOv8n Model
 
 ```bash
-python drink_detector_trainer.py --mode train --dataset_path ./drink_dataset
+python drink_detector_trainer.py --mode train --dataset_path ./features/drink_and_drive/drink_dataset
 ```
 
 **Output:**
-- `drink_detector_model.pkl` - Trained model file
-- Training accuracy printed to console
-- Training logs in console
+- `models/yolov8n_drink.pt` - Trained YOLOv8n model
+- Training metrics in `features/drink_and_drive/runs/detect/train*/`
 
-**Time estimate (Method 1 - Webcam):** ~5-10 minutes to collect 1000 images manually
-**Time estimate (Method 2 - Web):** ~2-5 minutes to train on 12,000+ images
+**Time estimate (Method 1 - Webcam):** ~5-10 minutes to collect images manually
+**Time estimate (Method 2 - Web):** ~5-10 minutes to train on 12,000+ images
 
 ### Step 3: Test the Model
 
 Test real-time detection on webcam:
 
 ```bash
-python drink_detector_trainer.py --mode test_camera --model_path ./drink_detector_model.pkl
+python drink_detector_trainer.py --mode test_camera --model_path ./models/yolov8n_drink.pt
 ```
 
 **What to expect:**
@@ -216,8 +217,8 @@ python drink_and_drive_detection.py
 ```
 
 The system will:
-1. Load the custom model from `./drink_detector_model.pkl`
-2. Use it for real-time drink detection
+1. Load the YOLOv8n model from `./models/yolov8n_drink.pt`
+2. Use it for real-time drink detection with bounding boxes and confidence scores
 3. Fuse results with hand proximity and head pose signals
 4. Trigger alerts based on combined risk score
 
@@ -230,10 +231,10 @@ All parameters are in `config.py`. Key tunable parameters:
 ### State Transition Thresholds (Tuned for Real Driving)
 
 ```python
-# Risk score thresholds (0-3 scale)
-DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE = 1.5      # Initial detection
-DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED = 2.0 # Higher confidence
-DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 2.5    # Very high confidence
+# Risk score thresholds (tuned for real driving behavior)
+DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE = 0.4      # Head tilt alone triggers investigation
+DRINK_RISK_THRESHOLD_POSSIBLE_TO_CONFIRMED = 0.9 # Hand + head signals together
+DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 1.3    # Hand + head + object detected
 
 # Frame consistency requirements (at 30fps)
 DRINK_FRAMES_IDLE_TO_POSSIBLE = 5          # ~0.17 seconds
@@ -262,8 +263,8 @@ Lower = more strict (only detects drinking very close to mouth)
 ### Head Pose Distraction
 
 ```python
-HEAD_YAW_DISTRACTION_THRESHOLD = 25    # Head turned left/right (degrees)
-HEAD_PITCH_DISTRACTION_THRESHOLD = 18  # Head tilted up/down (degrees)
+HEAD_YAW_DISTRACTION_THRESHOLD = 15   # Head turned left/right (degrees) — tightened
+HEAD_PITCH_DISTRACTION_THRESHOLD = 6  # Head tilted up/down (degrees) — catches upward tilt
 ```
 
 ### Event Logging
@@ -271,8 +272,8 @@ HEAD_PITCH_DISTRACTION_THRESHOLD = 18  # Head tilted up/down (degrees)
 ```python
 ENABLE_DRINK_CSV_LOGGING = True
 ENABLE_DRINK_SNAPSHOTS = True
-DRINK_LOG_DIRECTORY = "drink_detection_logs"
-DRINK_SNAPSHOTS_DIRECTORY = "drink_detection_logs/snapshots"
+DRINK_LOG_DIRECTORY = "features/drink_and_drive/drink_detection_logs"
+DRINK_SNAPSHOTS_DIRECTORY = "features/drink_and_drive/drink_detection_logs/snapshots"
 DRINK_EVENT_SNAPSHOT_COUNT = 6  # Frames captured around alert
 ```
 
@@ -284,13 +285,13 @@ The detection system uses a 4-state state machine:
 
 ```
 IDLE (green)
-  ↓ [risk ≥ 1.5]
-POSSIBLE_DRINKING (yellow) [5 frames]
-  ↓ [risk ≥ 2.0]
-DRINKING (orange) [10 frames]
-  ↓ [risk ≥ 2.5]
+  ↓ [risk ≥ 0.4 for 5 frames]
+POSSIBLE_DRINKING (yellow)
+  ↓ [risk ≥ 0.9 for 10 frames]
+DRINKING (orange)
+  ↓ [risk ≥ 1.3 for 12 frames]
 ALERT (red) [plays alarm, saves snapshots]
-  ↓ [duration expired]
+  ↓ [2 second cooldown]
 IDLE
 ```
 
@@ -305,7 +306,7 @@ IDLE
 
 ### Event Logs
 
-CSV file at `drink_detection_logs/drink_and_drive_events.csv`:
+CSV file at `features/drink_and_drive/drink_detection_logs/drink_and_drive_events.csv`:
 
 ```
 timestamp,event_type,risk_score,hand_mouth_distance,object_detected,head_distracted,frame_number
@@ -316,7 +317,7 @@ timestamp,event_type,risk_score,hand_mouth_distance,object_detected,head_distrac
 
 ### Frame Snapshots
 
-Saved to `drink_detection_logs/snapshots/`:
+Saved to `features/drink_and_drive/drink_detection_logs/snapshots/`:
 
 ```
 snapshot_20240417_143245_123_frame150_ALERT_snap0.jpg
@@ -339,10 +340,11 @@ The system fuses three independent signals:
 - **Threshold:** 0.15 (15% of face width)
 - **Weight:** 1.0x
 
-### 2. Object Detection
-- **Signal:** Detected drink objects near mouth
-- **Uses:** Custom trained model or fallback detection
-- **Classes:** cup, bottle, mug, can, glass, etc.
+### 2. Object Detection (YOLOv8n)
+- **Signal:** Detected drink objects near mouth with bounding box
+- **Model:** `models/yolov8n_drink.pt` (YOLOv8 Nano, fine-tuned)
+- **Confidence threshold:** 0.5 (`DRINK_DETECTION_CONFIDENCE_THRESHOLD`)
+- **Classes:** cup, bottle, mug, can, glass, drinking_bottle, soda_can, beer_bottle, water_bottle, tea_cup
 - **Weight:** 1.0x
 
 ### 3. Head Distraction
@@ -370,8 +372,8 @@ Range: 0-3.0
 
 **Solution:**
 ```python
-# In config.py, increase thresholds
-DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 2.8  # was 2.5
+# In config/config.py, increase thresholds
+DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 1.6  # was 1.3
 DRINK_FRAMES_CONFIRMED_TO_ALERT = 15            # was 12
 ```
 
@@ -379,26 +381,26 @@ DRINK_FRAMES_CONFIRMED_TO_ALERT = 15            # was 12
 
 **Solution:**
 ```python
-# In config.py, decrease thresholds
-DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 2.2  # was 2.5
+# In config/config.py, decrease thresholds
+DRINK_RISK_THRESHOLD_CONFIRMED_TO_ALERT = 1.0  # was 1.3
 DRINK_FRAMES_CONFIRMED_TO_ALERT = 10            # was 12
-DRINK_HAND_MOUTH_DISTANCE_THRESHOLD = 0.12     # was 0.15
+DRINK_HAND_MOUTH_DISTANCE_THRESHOLD = 0.50     # was 0.70 (lower = stricter)
 ```
 
-### Issue: Custom model not loading
+### Issue: YOLOv8 model not loading
 
 **Check:**
-1. Is `drink_detector_model.pkl` in current directory?
+1. Does `models/yolov8n_drink.pt` exist?
 2. Did training complete successfully?
 3. Check console output for error messages
 
 **Solution:**
 ```bash
 # Re-train model
-python drink_detector_trainer.py --mode train --dataset_path ./drink_dataset
+python drink_detector_trainer.py --mode train --dataset_path ./features/drink_and_drive/drink_dataset
 
 # Test model before using
-python drink_detector_trainer.py --mode test_camera --model_path ./drink_detector_model.pkl
+python drink_detector_trainer.py --mode test_camera --model_path ./models/yolov8n_drink.pt
 ```
 
 ### Issue: Poor hand detection
@@ -526,13 +528,14 @@ cat drink_detection_logs/drink_and_drive_events.csv | wc -l
 
 ### Core Components
 
-1. **drink_and_drive_detection.py** - Main detection pipeline
-2. **drink_detector_trainer.py** - Model training and testing
-3. **utils.py** - Detection algorithms and logging
-4. **config.py** - All tunable parameters
-5. **drink_dataset/** - Training data directory
-6. **drink_detector_model.pkl** - Trained model (auto-generated)
-7. **drink_detection_logs/** - Event logs and snapshots
+1. **features/drink_and_drive/drink_and_drive_detection.py** - Main detection pipeline
+2. **features/drink_and_drive/drink_detector_trainer.py** - YOLOv8 training orchestration
+3. **features/drink_and_drive/yolov8_drink_detector.py** - YOLOv8DrinkDetector class
+4. **utils/utils.py** - Detection algorithms, alarm, and logging helpers
+5. **config/config.py** - All tunable parameters
+6. **features/drink_and_drive/drink_dataset/** - Training data directory
+7. **models/yolov8n_drink.pt** - Trained YOLOv8n model
+8. **features/drink_and_drive/drink_detection_logs/** - Event logs and snapshots
 
 ---
 
@@ -541,6 +544,7 @@ cat drink_detection_logs/drink_and_drive_events.csv | wc -l
 - **MediaPipe Documentation:** https://developers.google.com/mediapipe
 - **OpenCV Documentation:** https://docs.opencv.org
 - **Scikit-learn:** https://scikit-learn.org
+- **YOLOv8 / Ultralytics:** https://docs.ultralytics.com/
 
 ---
 

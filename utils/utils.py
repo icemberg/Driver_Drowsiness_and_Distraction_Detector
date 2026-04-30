@@ -10,6 +10,7 @@ import config.config as config
 
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+_alarm_last_played = 0.0   # timestamp of last alarm play
 
 
 def initialize_logger(log_file):
@@ -21,7 +22,18 @@ def initialize_logger(log_file):
     logging.info("driver_drowsiness session started")
     
     
+
+
+
 def play_alarm(sound_file=None, volume=1.0):
+    global _alarm_last_played
+
+    # ── Global cooldown: prevent rapid-fire overlapping beeps ──
+    now = time.time()
+    cooldown = getattr(config, 'ALARM_DURATION', 1.0) + 0.5
+    if now - _alarm_last_played < cooldown:
+        return  # another alarm is still playing / just played
+
     try:
         if not pygame.mixer.get_init():
             pygame.mixer.init(
@@ -47,6 +59,8 @@ def play_alarm(sound_file=None, volume=1.0):
             pygame.mixer.music.load(sound_file)
             pygame.mixer.music.play()
             print(f"[INFO] Alarm sound playing from file: {sound_file}")
+
+        _alarm_last_played = time.time()
     except Exception as e:
         print(f"[ERROR] Failed to play alarm: {e}")
         print("\a" * 3)  

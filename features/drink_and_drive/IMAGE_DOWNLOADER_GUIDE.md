@@ -251,13 +251,14 @@ Balance metrics:
 Once download and cleaning completes, train the model:
 
 ```bash
-python drink_detector_trainer.py --mode train --dataset_path ./drink_dataset
+python drink_detector_trainer.py --mode train --dataset_path ./features/drink_and_drive/drink_dataset
 ```
 
 **Expected results:**
-- Training accuracy: 95%+ (vs. 70-80% with webcam data)
-- Model file: `drink_detector_model.pkl` (~20MB)
-- Training time: 2-5 minutes
+- Training accuracy: 92%+ with YOLOv8n end-to-end learning
+- Model file: `models/yolov8n_drink.pt` (~6 MB)
+- Training time: 5-10 minutes
+- Metrics saved to: `features/drink_and_drive/runs/detect/train*/`
 
 ---
 
@@ -453,11 +454,11 @@ Include:
 # 1. Download everything (15-30 min)
 python image_downloader.py --download --clean --stats
 
-# 2. Train model (2-5 min)
-python drink_detector_trainer.py --mode train --dataset_path ./drink_dataset
+# 2. Train YOLOv8n model (5-10 min)
+python drink_detector_trainer.py --mode train --dataset_path ./features/drink_and_drive/drink_dataset
 
 # 3. Test on webcam
-python drink_detector_trainer.py --mode test_camera --model_path ./drink_detector_model.pkl
+python drink_detector_trainer.py --mode test_camera --model_path ./models/yolov8n_drink.pt
 
 # 4. Use in main pipeline
 python drink_and_drive_detection.py
