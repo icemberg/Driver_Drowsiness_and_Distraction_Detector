@@ -171,7 +171,7 @@ class DriverSafetyPipeline:
                          "DRINKING": (0,165,255), "ALERT": (0,0,255)}
             col = state_col.get(dk["state"], (200, 200, 200))
             put(f"[Drink]  {dk['state']}  Risk:{dk['risk']:.1f}/3.0", col)
-            if dk["state"] == "ALERT":
+            if dk["state"] in ("DRINKING", "ALERT"):
                 alerts.append("DRINK & DRIVE")
 
         ph = results.get("phone")

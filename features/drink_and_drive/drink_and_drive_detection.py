@@ -223,7 +223,7 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
     risk = fuse_three_signals(hand_norm, drink_obj, head_dist,
                               DRINK_HAND_MOUTH_DISTANCE_THRESHOLD)
 
-    # ── Play alarm when risk is high enough ──
+    # ── Play alarm once when risk is high enough ──
     if risk > 1.5 and not _drink_alarm_on and not silent:
         _drink_alarm_on = True
         play_alarm(ALARM_SOUND, ALARM_VOLUME)
@@ -232,6 +232,7 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
     _drink_frame_ctr += 1
 
     if _drink_state == DrinkState.IDLE:
+        _drink_alarm_on = False  # ensure alarm is unlocked in IDLE
         if risk >= DRINK_RISK_THRESHOLD_IDLE_TO_POSSIBLE:
             _drink_frame_ctr = 0
             _drink_grace_ctr = 0
@@ -244,15 +245,14 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
                 _drink_frame_ctr = 0
                 _drink_state = DrinkState.DRINKING
                 # ── Play alarm on confirmed drinking ──
-                if not _drink_alarm_on:
-                    _drink_alarm_on = True
-                    if not silent:
-                        play_alarm(ALARM_SOUND, ALARM_VOLUME)
+                if not silent:
+                    play_alarm(ALARM_SOUND, ALARM_VOLUME)
         elif risk < DRINK_RISK_FALLBACK_THRESHOLD:
             _drink_grace_ctr += 1
             if _drink_grace_ctr >= _DRINK_GRACE_FRAMES:
                 _drink_frame_ctr = 0
                 _drink_grace_ctr = 0
+                _drink_alarm_on = False
                 _drink_state = DrinkState.IDLE
         else:
             # Risk between fallback and confirmed — keep waiting, don't reset
@@ -266,18 +266,18 @@ def process_frame(face_landmarks, hand_results, frame, w, h, now, frame_number=0
                 _drink_state       = DrinkState.ALERT
                 _drink_alert_until = now + DRINK_ALERT_DURATION
                 _drink_events     += 1
+                _drink_alarm_on    = True
                 if _drink_csv_path:
                     log_drink_event(_drink_csv_path, "ALERT", risk,
                                     hand_norm, drink_obj, head_dist, frame_number)
-                if not _drink_alarm_on:
-                    _drink_alarm_on = True
-                    if not silent:
-                        play_alarm(ALARM_SOUND, ALARM_VOLUME)
+                if not silent:
+                    play_alarm(ALARM_SOUND, ALARM_VOLUME)
         elif risk < DRINK_RISK_FALLBACK_THRESHOLD:
             _drink_grace_ctr += 1
             if _drink_grace_ctr >= _DRINK_GRACE_FRAMES:
                 _drink_frame_ctr = 0
                 _drink_grace_ctr = 0
+                _drink_alarm_on = False
                 _drink_state = DrinkState.IDLE
         else:
             # Risk between fallback and alert threshold — keep waiting

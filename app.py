@@ -178,7 +178,7 @@ def _alerts(results):
     if (s := results.get("sleep"))       and s.get("drowsy"):     out.append("DROWSY")
     if (d := results.get("distraction")) and d.get("distracted"): out.append("DISTRACTED")
     if (y := results.get("yawning"))     and y.get("yawning"):    out.append("YAWNING")
-    if (k := results.get("drink"))       and k.get("state") == "ALERT": out.append("DRINK & DRIVE 🚨")
+    if (k := results.get("drink"))       and k.get("state") in ("DRINKING", "ALERT"): out.append("DRINK & DRIVE 🚨")
     if (p := results.get("phone"))       and p.get("state") == "ALERT": out.append("PHONE USE 📱")
     return out
 
